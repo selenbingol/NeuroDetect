@@ -12,7 +12,7 @@ Identify potential cognitive risk trends early
 Support timely academic intervention through analytics
 
 NeuroDetect does not provide medical or psychological diagnoses. It functions solely as an educational decision-support tool.
-
+sim
 
 Key Features
 
