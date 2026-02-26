@@ -1,121 +1,176 @@
 import 'package:flutter/material.dart';
+import 'package:neurodetect_app/models/test_result.dart'; 
+import 'package:neurodetect_app/services/test_service.dart';
+import 'package:neurodetect_app/services/api_service.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(const NeuroDetectApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class NeuroDetectApp extends StatelessWidget {
+  const NeuroDetectApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      debugShowCheckedModeBanner: false,
+      title: 'NeuroDetect Prototip',
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: .fromSeed(seedColor: Colors.deepPurple),
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
+        useMaterial3: true,
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const NeuroDetectTestPage(title: 'NeuroDetect: Motor Test'),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
+class NeuroDetectTestPage extends StatefulWidget {
+  const NeuroDetectTestPage({super.key, required this.title});
   final String title;
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  State<NeuroDetectTestPage> createState() => _NeuroDetectTestPageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class _NeuroDetectTestPageState extends State<NeuroDetectTestPage> {
+  // Servislerimizi tanımlıyoruz
+  final TestService _testService = TestService();
+  final ApiService _apiService = ApiService();
+  
+  // Veri listesi
+  final List<TestResult> _allResults = [];
 
-  void _incrementCounter() {
+  // Durum değişkenleri
+  int _successCount = 0;
+  int _totalClicks = 0;
+  double _top = 250;
+  double _left = 150;
+  int _lastTimestamp = 0;
+  bool _isTestActive = false;
+
+  // Ana etkileşim yöneticisi
+  void _handleInteraction(bool hitTarget) {
+    final int now = DateTime.now().millisecondsSinceEpoch;
+
     setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+      _totalClicks++;
+
+      if (hitTarget) {
+        _successCount++;
+        double currentAccuracy = _testService.calculateAccuracy(_successCount, _totalClicks);
+        
+        // Eğer bu ilk dokunuş değilse tepki süresi ve sonuçları kaydet
+        if (_lastTimestamp != 0) {
+          final result = TestResult(
+            reactionTime: now - _lastTimestamp,
+            isSuccess: true,
+            accuracy: currentAccuracy,
+            score: _successCount * 10,
+            timestamp: DateTime.now(),
+          );
+
+          // 1. Yerel listeye ekle
+          _allResults.add(result);
+
+          // 2. Sunucuya/Veritabanına gönder (İlmek ilmek bağlanan kısım)
+          _apiService.sendGameMetrics(result).then((success) {
+            if (success) {
+              debugPrint("Veri başarıyla buluta iletildi.");
+            } else {
+              debugPrint("Bulut bağlantısı kurulamadı (Backend henüz çalışmıyor olabilir).");
+            }
+          });
+        }
+
+        // Hedefi yeni konuma taşı
+        _top = _testService.getNextCoordinate(MediaQuery.of(context).size.height);
+        _left = _testService.getNextCoordinate(MediaQuery.of(context).size.width);
+        
+        _lastTimestamp = now;
+        _isTestActive = true;
+      } else {
+        // Iskalama (Miss) durumunu kaydet
+        _allResults.add(TestResult(
+          reactionTime: 0,
+          isSuccess: false,
+          accuracy: _testService.calculateAccuracy(_successCount, _totalClicks),
+          score: _successCount * 10,
+          timestamp: DateTime.now(),
+        ));
+      }
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
+    double accuracy = _testService.calculateAccuracy(_successCount, _totalClicks);
+
     return Scaffold(
       appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
         title: Text(widget.title),
       ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: .center,
+      body: GestureDetector(
+        onTap: () => _handleInteraction(false),
+        behavior: HitTestBehavior.opaque,
+        child: Stack(
           children: [
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+            _buildStatPanel(accuracy),
+            Positioned(
+              top: _top,
+              left: _left,
+              child: _buildTargetView(),
             ),
+            if (!_isTestActive)
+              const Center(child: Text("Testi başlatmak için hedefe dokunun")),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
+    );
+  }
+
+  // UI Bileşeni: İstatistik Paneli
+  Widget _buildStatPanel(double accuracy) {
+    return Positioned(
+      top: 20,
+      left: 20,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.8),
+          borderRadius: BorderRadius.circular(8),
+          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("Başarılı: $_successCount", 
+                 style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+            Text("Iskalama: ${_totalClicks - _successCount}", 
+                 style: const TextStyle(color: Colors.red)),
+            Text("Doğruluk: %${accuracy.toStringAsFixed(1)}"),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // UI Bileşeni: Kırmızı Hedef
+  Widget _buildTargetView() {
+    return GestureDetector(
+      onTap: () => _handleInteraction(true),
+      child: Container(
+        width: 70,
+        height: 70,
+        decoration: const BoxDecoration(
+          color: Colors.redAccent,
+          shape: BoxShape.circle,
+          boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 5)],
+        ),
+        child: const Center(
+          child: Text("DOKUN", 
+            style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+        ),
       ),
     );
   }
