@@ -209,7 +209,131 @@ async def end_session(data: EndSessionData):
         if conn:
             conn.close()
 
+@app.get("/patients")
+async def get_patients():
+    conn = None
+    cur = None
+    try:
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
 
+        query = """
+        SELECT user_id, username, email
+        FROM public."user"
+        WHERE role = 'patient'
+        ORDER BY username ASC;
+        """
+        cur.execute(query)
+        rows = cur.fetchall()
+
+        return [
+            {
+                "user_id": row[0],
+                "username": row[1],
+                "email": row[2],
+            }
+            for row in rows
+        ]
+
+    except Exception as e:
+        print(f"❌ Patients çekme hatası: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+
+@app.get("/patients/{user_id}/report")
+async def get_patient_report(user_id: int):
+    conn = None
+    cur = None
+    try:
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+
+        # Patient info
+        cur.execute("""
+            SELECT user_id, username, email
+            FROM public."user"
+            WHERE user_id = %s AND role = 'patient';
+        """, (user_id,))
+        patient = cur.fetchone()
+
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+
+        # Summary stats
+        cur.execute("""
+            SELECT
+                COUNT(DISTINCT s.session_id) AS total_sessions,
+                COALESCE(AVG(gm.score), 0),
+                COALESCE(AVG(gm.accuracy_rate), 0),
+                COALESCE(AVG(gm.reaction_time_ms), 0),
+                COALESCE(SUM(gm.miss_count), 0)
+            FROM public.session s
+            LEFT JOIN public.game_metrics gm ON s.session_id = gm.session_id
+            WHERE s.user_id = %s;
+        """, (user_id,))
+        summary = cur.fetchone()
+
+        # Session history
+        cur.execute("""
+            SELECT
+                s.session_id,
+                s.start_time,
+                s.end_time,
+                gm.score,
+                gm.accuracy_rate,
+                gm.reaction_time_ms,
+                gm.miss_count
+            FROM public.session s
+            LEFT JOIN public.game_metrics gm ON s.session_id = gm.session_id
+            WHERE s.user_id = %s
+            ORDER BY s.start_time DESC;
+        """, (user_id,))
+        sessions = cur.fetchall()
+
+        return {
+            "patient": {
+                "user_id": patient[0],
+                "username": patient[1],
+                "email": patient[2],
+            },
+            "summary": {
+                "total_sessions": summary[0],
+                "avg_score": float(summary[1]),
+                "avg_accuracy": float(summary[2]),
+                "avg_reaction_time": float(summary[3]),
+                "total_miss_count": int(summary[4]),
+            },
+            "sessions": [
+                {
+                    "session_id": row[0],
+                    "start_time": None if row[1] is None else str(row[1]),
+                    "end_time": None if row[2] is None else str(row[2]),
+                    "score": row[3],
+                    "accuracy_rate": row[4],
+                    "reaction_time_ms": row[5],
+                    "miss_count": row[6],
+                }
+                for row in sessions
+            ]
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Patient report hatası: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+            
 @app.post("/save-metrics")
 async def save_metrics(data: GameMetricsData):
     conn = None
