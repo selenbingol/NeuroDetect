@@ -4,8 +4,11 @@ import '../models/user_model.dart';
 import '../models/test_result.dart';
 
 class ApiService {
-  final String _baseUrl = "http://127.0.0.1:8000";
+  
+  final String _baseUrl = "http://localhost:8000"; // Login servisi
+  final String _aiUrl = "http://localhost:5000";   // Yapay Zeka servisi
 
+  // --- KULLANICI İŞLEMLERİ ---
   Future<UserModel?> login(String username, String passwordHash) async {
     try {
       final response = await http.post(
@@ -29,6 +32,7 @@ class ApiService {
     }
   }
 
+  // --- OTURUM (SESSION) İŞLEMLERİ ---
   Future<int?> startSession(int userId) async {
     try {
       final response = await http.post(
@@ -70,6 +74,7 @@ class ApiService {
     }
   }
 
+  // --- VERİ TABANINA OYUN VERİLERİNİ KAYDETME ---
   Future<bool> sendGameMetrics(
     TestResult result,
     int sessionId,
@@ -96,6 +101,37 @@ class ApiService {
     } catch (e) {
       print("Save metrics hatası: $e");
       return false;
+    }
+  }
+
+  // ======================================================
+  // YAPAY ZEKA ANALİZ FONKSİYONU (FLASK BAĞLANTISI)
+  // ======================================================
+  Future<Map<String, dynamic>?> getAiPrediction({
+    required List<double> mri,       // [eTIV, nWBV, ASF]
+    required List<double> clinical,  // [Age, EDUC, SES, MMSE, CDR, Gender]
+    required List<double> game,      // [ReactionTime, Accuracy, MissCount]
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse("$_aiUrl/predict"),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          "mri": mri,
+          "clinical": clinical,
+          "game": game,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        print("AI Sunucu Hatası: ${response.statusCode} - ${response.body}");
+        return null;
+      }
+    } catch (e) {
+      print("AI Bağlantı Hatası: $e");
+      return null;
     }
   }
 }
