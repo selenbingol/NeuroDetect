@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../models/user_model.dart';
-import 'game_page.dart';
+import 'reaction_game_page.dart';
+import 'consent_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -51,12 +52,12 @@ class _LoginPageState extends State<LoginPage> {
     });
 
     if (user != null) {
-      Navigator.pushReplacement(
+      Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => GamePage(user: user),
-        ),
-      );
+          builder: (_) => ConsentPage(user: user),
+          ),
+        );
     } else {
       setState(() {
         _message =

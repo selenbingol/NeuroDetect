@@ -51,9 +51,9 @@ class _DoctorDashboardPageState extends State<DoctorDashboardPage> {
   Widget build(BuildContext context) {
     final totalPatients = _patients.length;
     final totalSessions = _patients.fold<int>(
-      0,
-      (sum, p) => sum + p.totalSessions,
-    );
+  0,
+  (sum, p) => sum + p.sessionDates.length,
+);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF3F6FA),

@@ -1,33 +1,27 @@
 class PatientSummaryModel {
   final int userId;
-  final String username;
-  final String email;
-  final int totalSessions;
-  final int? latestScore;
-  final double? latestAccuracy;
-  final String? lastSessionAt;
+  final String firstName;
+  final String lastName;
+  final String? dob;
+  final List<String> sessionDates;
 
   PatientSummaryModel({
     required this.userId,
-    required this.username,
-    required this.email,
-    required this.totalSessions,
-    required this.latestScore,
-    required this.latestAccuracy,
-    required this.lastSessionAt,
+    required this.firstName,
+    required this.lastName,
+    required this.dob,
+    required this.sessionDates,
   });
 
   factory PatientSummaryModel.fromJson(Map<String, dynamic> json) {
     return PatientSummaryModel(
       userId: json['user_id'],
-      username: json['username'],
-      email: json['email'],
-      totalSessions: json['total_sessions'] ?? 0,
-      latestScore: json['latest_score'],
-      latestAccuracy: json['latest_accuracy'] == null
-          ? null
-          : (json['latest_accuracy'] as num).toDouble(),
-      lastSessionAt: json['last_session_at'],
+      firstName: json['first_name'] ?? '',
+      lastName: json['last_name'] ?? '',
+      dob: json['dob'],
+      sessionDates: json['session_dates'] == null
+          ? []
+          : List<String>.from(json['session_dates']),
     );
   }
 }

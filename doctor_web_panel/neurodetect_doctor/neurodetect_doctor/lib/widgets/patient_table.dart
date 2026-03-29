@@ -11,6 +11,76 @@ class PatientTable extends StatelessWidget {
     required this.onPatientTap,
   });
 
+  String formatSessionDate(String date) {
+    if (date.isEmpty) return "-";
+
+    if (date.contains("T")) {
+      return date.split("T").first;
+    }
+
+    if (date.contains(" ")) {
+      return date.split(" ").first;
+    }
+
+    return date;
+  }
+
+  List<DataRow> buildRows() {
+    final List<DataRow> rows = [];
+
+    for (final patient in patients) {
+      if (patient.sessionDates.isEmpty) {
+        rows.add(
+          DataRow(
+            cells: [
+              DataCell(
+                InkWell(
+                  onTap: () => onPatientTap(patient),
+                  child: Text(
+                    patient.firstName,
+                    style: const TextStyle(
+                      color: Color(0xFF1E5F92),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+              DataCell(Text(patient.lastName)),
+              DataCell(Text(patient.dob ?? "-")),
+              const DataCell(Text("-")),
+            ],
+          ),
+        );
+      } else {
+        for (final sessionDate in patient.sessionDates) {
+          rows.add(
+            DataRow(
+              cells: [
+                DataCell(
+                  InkWell(
+                    onTap: () => onPatientTap(patient),
+                    child: Text(
+                      patient.firstName,
+                      style: const TextStyle(
+                        color: Color(0xFF1E5F92),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+                DataCell(Text(patient.lastName)),
+                DataCell(Text(patient.dob ?? "-")),
+                DataCell(Text(formatSessionDate(sessionDate))),
+              ],
+            ),
+          );
+        }
+      }
+    }
+
+    return rows;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -32,42 +102,12 @@ class PatientTable extends StatelessWidget {
           child: DataTable(
             headingRowColor: WidgetStateProperty.all(const Color(0xFFF8FAFC)),
             columns: const [
-              DataColumn(label: Text("Patient")),
-              DataColumn(label: Text("Email")),
-              DataColumn(label: Text("Sessions")),
-              DataColumn(label: Text("Latest Score")),
-              DataColumn(label: Text("Latest Accuracy")),
-              DataColumn(label: Text("Last Session")),
+              DataColumn(label: Text("First Name")),
+              DataColumn(label: Text("Last Name")),
+              DataColumn(label: Text("Date of Birth")),
+              DataColumn(label: Text("Session Date")),
             ],
-            rows: patients.map((patient) {
-              return DataRow(
-                cells: [
-                  DataCell(
-                    InkWell(
-                      onTap: () => onPatientTap(patient),
-                      child: Text(
-                        patient.username,
-                        style: const TextStyle(
-                          color: Color(0xFF1E5F92),
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
-                  DataCell(Text(patient.email)),
-                  DataCell(Text(patient.totalSessions.toString())),
-                  DataCell(Text(patient.latestScore?.toString() ?? "-")),
-                  DataCell(
-                    Text(
-                      patient.latestAccuracy == null
-                          ? "-"
-                          : "${patient.latestAccuracy!.toStringAsFixed(1)}%",
-                    ),
-                  ),
-                  DataCell(Text(patient.lastSessionAt ?? "-")),
-                ],
-              );
-            }).toList(),
+            rows: buildRows(),
           ),
         ),
       ),

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/doctor_user_model.dart';
 import '../models/patient_summary_model.dart';
+import '../models/session_report_model.dart';
 
 class ApiService {
   final String _baseUrl = "http://127.0.0.1:8000";
@@ -53,4 +54,24 @@ class ApiService {
       return [];
     }
   }
+
+  Future<PatientReportModel?> getPatientReport(int userId) async {
+  try {
+    final response = await http.get(
+      Uri.parse("$_baseUrl/patients/$userId/report"),
+      headers: {"Content-Type": "application/json"},
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return PatientReportModel.fromJson(data);
+    } else {
+      print("Patient report alınamadı: ${response.body}");
+      return null;
+    }
+  } catch (e) {
+    print("Get patient report hatası: $e");
+    return null;
+  }
+}
 }
