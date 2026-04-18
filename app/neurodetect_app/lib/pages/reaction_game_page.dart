@@ -18,37 +18,35 @@ class _ReactionGamePageState extends State<ReactionGamePage> {
   final ApiService _apiService = ApiService();
   final Random _random = Random();
 
+  // Klinik Parametreler (Protokol Madde 7)
   static const int _maxRounds = 10;
-  static const double _targetSize = 78;
-  static const double _taskAreaHeight = 430;
-  static const int _targetVisibleMs = 5000;
+  static const double _targetSize = 78; 
+  static const int _targetVisibleMs = 2000; // 5 sn'den 2 sn'ye düşürüldü
 
-  int? _sessionId;
-  bool _isLoadingSession = true;
-  bool _isGameFinished = false;
-  bool _isAiLoading = false;
-
+  // Veri Seti ve Sayaçlar (Protokol Madde 3)
   int _currentRound = 0;
-  int _successCount = 0;
-  int _missCount = 0;
-  int _falseStartCount = 0;
+  int _tapCount = 0;          // Doğru vuruş
+  int _falseStartCount = 0;   // Erken basış
+  int _wrongTapCount = 0;     // Yanlış alan
+  int _timeoutCount = 0;      // Süre aşımı
+  final List<int> _reactionTimes = [];
 
-  double _top = 180;
-  double _left = 120;
-
+  // Durum Yönetimi
+  int? _sessionId;
+  bool _isGameFinished = false;
   bool _isTargetVisible = false;
-  bool _isWaitingForTarget = false;
+  bool _isWaitingForTarget = false; 
   bool _isCountdownActive = true;
-
-  String _message = "Preparing session...";
   int _countdown = 3;
+  String _feedbackMessage = ""; // Kullanıcıya geri bildirim mesajı
+  
+  double _top = 150;
+  double _left = 100;
   int _targetShownAt = 0;
 
   Timer? _countdownTimer;
   Timer? _targetDelayTimer;
   Timer? _targetTimeoutTimer;
-
-  final List<int> _reactionTimes = [];
 
   @override
   void initState() {
@@ -65,47 +63,28 @@ class _ReactionGamePageState extends State<ReactionGamePage> {
   }
 
   Future<void> _startSession() async {
-    final sessionId = await _apiService.startSession(widget.user.userId);
+    final sessionId = await _apiService.startSession(widget.user.userId, "reaction");
     if (!mounted) return;
-
     setState(() {
       _sessionId = sessionId;
-      _isLoadingSession = false;
-      _message = sessionId != null ? "Session ready" : "Connection error";
     });
-
-    if (sessionId != null) {
-      _startCountdown();
-    }
+    if (sessionId != null) _runCountdown();
   }
 
-  void _startCountdown() {
-    setState(() {
-      _isCountdownActive = true;
-      _countdown = 3;
-      _message = "Get ready...";
-    });
-
-    _countdownTimer?.cancel();
+  void _runCountdown() {
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) return;
-
       if (_countdown > 1) {
-        setState(() {
-          _countdown--;
-        });
+        setState(() => _countdown--);
       } else {
         timer.cancel();
-        setState(() {
-          _isCountdownActive = false;
-          _message = "Wait for the target";
-        });
-        _startNextRound();
+        setState(() => _isCountdownActive = false);
+        _prepareNextRound();
       }
     });
   }
 
-  void _startNextRound() {
+  void _prepareNextRound() {
     if (_isGameFinished) return;
 
     if (_currentRound >= _maxRounds) {
@@ -113,419 +92,229 @@ class _ReactionGamePageState extends State<ReactionGamePage> {
       return;
     }
 
-    _targetDelayTimer?.cancel();
-    _targetTimeoutTimer?.cancel();
-
-    final maxTop = _taskAreaHeight - _targetSize - 24;
-    final maxLeft =
-        (MediaQuery.of(context).size.width - 40 - _targetSize).clamp(120.0, double.infinity);
-
     setState(() {
       _currentRound++;
       _isTargetVisible = false;
       _isWaitingForTarget = true;
-      _message = "Wait...";
-      _top = 20 + _random.nextDouble() * (maxTop - 20);
-      _left = 20 + _random.nextDouble() * (maxLeft - 20);
+      _feedbackMessage = "";
     });
 
-    final delay = 900 + _random.nextInt(1600);
-
+    // Random Delay (1000ms - 2500ms)
+    final delay = 1000 + _random.nextInt(1500);
     _targetDelayTimer = Timer(Duration(milliseconds: delay), () {
       if (!mounted || _isGameFinished) return;
-
-      setState(() {
-        _isTargetVisible = true;
-        _isWaitingForTarget = false;
-        _targetShownAt = DateTime.now().millisecondsSinceEpoch;
-        _message = "Tap now";
-      });
-
-      _startTargetTimeout();
+      _showTarget();
     });
   }
 
-  void _startTargetTimeout() {
-    _targetTimeoutTimer?.cancel();
+  void _showTarget() {
+    final size = MediaQuery.of(context).size;
+    final maxTop = (size.height - 300).clamp(100.0, double.infinity);
+    final maxLeft = (size.width - 100).clamp(50.0, double.infinity);
+
+    setState(() {
+      _isWaitingForTarget = false;
+      _isTargetVisible = true;
+      _top = 100 + _random.nextDouble() * (maxTop - 100);
+      _left = 20 + _random.nextDouble() * (maxLeft - 20);
+      _targetShownAt = DateTime.now().millisecondsSinceEpoch;
+    });
+
+    // Timeout Timer (Protokol Madde 5 & 6)
     _targetTimeoutTimer = Timer(const Duration(milliseconds: _targetVisibleMs), () {
-      if (!mounted || !_isTargetVisible || _isGameFinished) return;
-
-      setState(() {
-        _isTargetVisible = false;
-        _missCount++;
-        _message = "Too late";
-      });
-
-      Future.delayed(const Duration(milliseconds: 700), _startNextRound);
+      if (!mounted || !_isTargetVisible) return;
+      _handleEvent(eventType: "timeout");
     });
   }
 
-  void _handleScreenTap() {
-    if (_isLoadingSession || _isGameFinished || _isCountdownActive) return;
+  // --- MERKEZİ EVENT YÖNETİCİSİ (Protokol Madde 2, 6, 10) ---
+  void _handleEvent({required String eventType}) {
+    if (_isGameFinished) return;
 
-    if (_isWaitingForTarget && !_isTargetVisible) {
-      _targetDelayTimer?.cancel();
-      _targetTimeoutTimer?.cancel();
-
-      setState(() {
-        _falseStartCount++;
-        _missCount++;
-        _message = "Too early";
-      });
-
-      Future.delayed(const Duration(milliseconds: 700), _startNextRound);
-      return;
-    }
-
-    if (_isTargetVisible) {
-      _handleTargetHit();
-      return;
-    }
-
-    setState(() {
-      _message = "Wait for the target";
-    });
-  }
-
-  void _handleTargetHit() {
-    final now = DateTime.now().millisecondsSinceEpoch;
+    _targetDelayTimer?.cancel();
     _targetTimeoutTimer?.cancel();
 
     setState(() {
-      _successCount++;
       _isTargetVisible = false;
-      _message = "Good";
-      if (_targetShownAt != 0) {
-        _reactionTimes.add(now - _targetShownAt);
+      _isWaitingForTarget = false;
+
+      if (eventType == "tap") {
+        _tapCount++;
+        final rt = DateTime.now().millisecondsSinceEpoch - _targetShownAt;
+        _reactionTimes.add(rt);
+        _feedbackMessage = "Correct";
+      } else if (eventType == "false_start") {
+        _falseStartCount++;
+        _feedbackMessage = "Too early";
+      } else if (eventType == "wrong_area") {
+        _wrongTapCount++;
+        _feedbackMessage = "Wrong area";
+      } else if (eventType == "timeout") {
+        _timeoutCount++;
+        _feedbackMessage = "Too slow";
       }
     });
 
-    Future.delayed(const Duration(milliseconds: 600), _startNextRound);
+    // Round bitti, kısa bir bekleme ve yeni round (Madde 5)
+    Future.delayed(const Duration(milliseconds: 800), _prepareNextRound);
+  }
+
+  // Ekranın herhangi bir yerine dokunulduğunda
+  void _onScreenTap() {
+    if (_isCountdownActive || _isGameFinished) return;
+
+    if (_isWaitingForTarget) {
+      _handleEvent(eventType: "false_start"); // Henüz çıkmadan bastı
+    } else if (_isTargetVisible) {
+      _handleEvent(eventType: "wrong_area");  // Çıktı ama dışarı bastı
+    }
   }
 
   Future<void> _finishGame() async {
-    if (_sessionId == null || _isGameFinished) return;
+    if (_isGameFinished || _sessionId == null) return;
+    setState(() => _isGameFinished = true);
 
-    final totalAttempts = _maxRounds;
-    final accuracy =
-        totalAttempts == 0 ? 0.0 : (_successCount / totalAttempts) * 100;
+    final totalAttempts = _tapCount + _falseStartCount + _wrongTapCount + _timeoutCount;
+    final avgRT = _reactionTimes.isEmpty ? 0.0 : _reactionTimes.reduce((a, b) => a + b) / _reactionTimes.length;
+    final accuracy = totalAttempts == 0 ? 0.0 : (_tapCount / totalAttempts) * 100;
 
-    final avgReactionTime = _reactionTimes.isEmpty
-        ? 0.0
-        : _reactionTimes.reduce((a, b) => a + b) / _reactionTimes.length;
+    // Ek Klinik Metrikler (Protokol Madde 8)
+    final tapRate = totalAttempts > 0 ? (_tapCount / totalAttempts) * 100 : 0.0;
+    final falseStartRate = totalAttempts > 0 ? (_falseStartCount / totalAttempts) * 100 : 0.0;
+    final wrongTapRate = totalAttempts > 0 ? (_wrongTapCount / totalAttempts) * 100 : 0.0;
+    final timeoutRate = totalAttempts > 0 ? (_timeoutCount / totalAttempts) * 100 : 0.0;
 
-    final score = (_successCount * 10) - (_falseStartCount * 2);
+    // RT Variability (Standart Sapma)
+    double rtStd = 0.0;
+    if (_reactionTimes.length > 1) {
+      final mean = avgRT;
+      final variance = _reactionTimes.map((rt) => (rt - mean) * (rt - mean)).reduce((a, b) => a + b) / _reactionTimes.length;
+      rtStd = sqrt(variance);
+    }
+
+    debugPrint("=== REACTION GAME KLİNİK METRİKLER ===");
+    debugPrint("Tap Rate: ${tapRate.toStringAsFixed(1)}%");
+    debugPrint("False Start Rate: ${falseStartRate.toStringAsFixed(1)}%");
+    debugPrint("Wrong Tap Rate: ${wrongTapRate.toStringAsFixed(1)}%");
+    debugPrint("Timeout Rate: ${timeoutRate.toStringAsFixed(1)}%");
+    debugPrint("Avg RT (tap only): ${avgRT.toStringAsFixed(0)} ms");
+    debugPrint("RT Std: ${rtStd.toStringAsFixed(1)} ms");
+
+    final totalMisses = _wrongTapCount + _timeoutCount;
 
     final result = TestResult(
-      reactionTime: avgReactionTime.round(),
+      reactionTime: avgRT.round(),
       isSuccess: true,
       accuracy: accuracy,
-      score: score < 0 ? 0 : score,
+      score: (_tapCount * 10) - (_falseStartCount * 5) - (_wrongTapCount * 2),
       timestamp: DateTime.now(),
     );
 
-    setState(() {
-      _isGameFinished = true;
-      _isAiLoading = true;
-      _message = "Finalising assessment...";
-    });
-
-    await _apiService.sendGameMetrics(result, _sessionId!, _missCount);
+    await _apiService.sendGameMetrics(
+      sessionId: _sessionId!,
+      score: result.score,
+      reactionTimeMs: result.reactionTime,
+      accuracyRate: result.accuracy,
+      tapCount: _tapCount,
+      falseStartCount: _falseStartCount,
+      wrongTapCount: _wrongTapCount,
+      timeoutCount: _timeoutCount,
+      falseAlarmCount: 0, // Reaction oyununda kullanılmıyor
+      omissionCount: 0,   // Reaction oyununda kullanılmıyor
+    );
     await _apiService.endSession(_sessionId!);
-
-    try {
-      await _apiService.getAiPrediction(
-        mri: [1600.0, 0.75, 1.0],
-        clinical: [75.0, 14.0, 2.0, 28.0, 0.0, 1.0],
-        game: [avgReactionTime, accuracy, _missCount.toDouble()],
-      );
-    } catch (e) {
-      debugPrint("AI error: $e");
-    }
-
-    if (!mounted) return;
-
-    setState(() {
-      _isAiLoading = false;
-    });
-
-    Navigator.pop(context);
-  }
-
-  String _reactionText() {
-    if (_reactionTimes.isEmpty) return "-";
-    final avg =
-        _reactionTimes.reduce((a, b) => a + b) / _reactionTimes.length;
-    return "${avg.toStringAsFixed(0)} ms";
+    if (mounted) Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
-    final accuracy = _currentRound == 0
-        ? 0.0
-        : (_successCount / _currentRound) * 100;
-
     return Scaffold(
       backgroundColor: const Color(0xFFF4F7FB),
       appBar: AppBar(
-        backgroundColor: const Color(0xFFF4F7FB),
-        elevation: 0,
+        title: const Text("Reaction Task", style: TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
-        title: Text(
-          "Reaction Task - ${widget.user.username}",
-          style: const TextStyle(
-            color: Color(0xFF1C2430),
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        iconTheme: const IconThemeData(color: Color(0xFF1C2430)),
+        automaticallyImplyLeading: false,
       ),
       body: GestureDetector(
-        onTap: _handleScreenTap,
+        onTap: _onScreenTap, // Tüm ekranı kapsayan ana dinleyici
         behavior: HitTestBehavior.opaque,
-        child: SafeArea(
-          child: Stack(
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  children: [
-                    _buildTopPanel(accuracy),
-                    const SizedBox(height: 18),
-                    _buildTaskArea(),
-                  ],
-                ),
-              ),
-              if (_isLoadingSession || _isAiLoading || _isGameFinished)
-                Container(
-                  color: Colors.black.withOpacity(0.08),
-                  child: const Center(
-                    child: CircularProgressIndicator(),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTopPanel(double accuracy) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x14000000),
-            blurRadius: 20,
-            offset: Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              _buildMetricCard(
-                icon: Icons.flag_outlined,
-                title: "Round",
-                value: "$_currentRound / $_maxRounds",
-              ),
-              const SizedBox(width: 12),
-              _buildMetricCard(
-                icon: Icons.speed_outlined,
-                title: "Avg Reaction",
-                value: _reactionText(),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              _buildMetricCard(
-                icon: Icons.check_circle_outline,
-                title: "Accuracy",
-                value: "%${accuracy.toStringAsFixed(1)}",
-              ),
-              const SizedBox(width: 12),
-              _buildMetricCard(
-                icon: Icons.warning_amber_rounded,
-                title: "Misses",
-                value: "$_missCount",
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFE5E7EB)),
-            ),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.info_outline_rounded,
-                  color: Color(0xFF1E6BA8),
-                  size: 20,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    _message,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: Color(0xFF374151),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMetricCard({
-    required IconData icon,
-    required String title,
-    required String value,
-  }) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF8FAFC),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: const Color(0xFFE5E7EB)),
-        ),
-        child: Row(
+        child: Stack(
           children: [
-            Icon(icon, color: const Color(0xFF1E6BA8), size: 22),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 12.5,
-                      color: Color(0xFF6B7280),
+            _buildLiveMetrics(),
+            
+            if (_isCountdownActive)
+              Center(child: Text("$_countdown", style: const TextStyle(fontSize: 90, fontWeight: FontWeight.w900, color: Color(0xFF1E6BA8)))),
+
+            if (_isTargetVisible)
+              Positioned(
+                top: _top,
+                left: _left,
+                child: GestureDetector(
+                  onTap: () => _handleEvent(eventType: "tap"),
+                  child: Container(
+                    width: _targetSize,
+                    height: _targetSize,
+                    decoration: const BoxDecoration(
+                      color: Colors.redAccent,
+                      shape: BoxShape.circle,
+                      boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 4))],
+                    ),
+                    child: const Center(
+                      child: Text(
+                        "TAP",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 3),
-                  Text(
-                    value,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF1C2430),
-                    ),
-                  ),
-                ],
+                ),
               ),
-            ),
+
+            if (!_isTargetVisible && !_isCountdownActive && !_isGameFinished)
+              Center(
+                child: Text(
+                  _feedbackMessage.isNotEmpty ? _feedbackMessage : "Wait...",
+                  style: TextStyle(
+                    fontSize: _feedbackMessage.isNotEmpty ? 28 : 20,
+                    fontWeight: _feedbackMessage.isNotEmpty ? FontWeight.w700 : FontWeight.w500,
+                    color: Colors.black87,
+                  ),
+                ),
+              ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildTaskArea() {
-    return Container(
-      height: _taskAreaHeight,
-      width: double.infinity,
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFFDFEFF), Color(0xFFF3F7FB)],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
+  Widget _buildLiveMetrics() {
+    return Positioned(
+      top: 10, left: 20, right: 20,
+      child: Container(
+        padding: const EdgeInsets.all(15),
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15), boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 5)]),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: [
+            _statItem("Round", "$_currentRound/$_maxRounds"),
+            _statItem("Tap", "$_tapCount", color: Colors.green),
+            _statItem("Wrong", "$_wrongTapCount", color: Colors.orange),
+            _statItem("False", "$_falseStartCount", color: Colors.red),
+          ],
         ),
-        borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
       ),
-      child: Stack(
-        children: [
-          if (_isCountdownActive)
-            Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    "Starting in",
-                    style: TextStyle(
-                      fontSize: 22,
-                      color: Color(0xFF6B7280),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    "$_countdown",
-                    style: const TextStyle(
-                      fontSize: 72,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF1E6BA8),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+    );
+  }
 
-          if (!_isCountdownActive && !_isTargetVisible && !_isGameFinished)
-            const Center(
-              child: Text(
-                "Wait for the target",
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF9CA3AF),
-                ),
-              ),
-            ),
-
-          if (_isTargetVisible && !_isGameFinished)
-            Positioned(
-              top: _top,
-              left: _left,
-              child: GestureDetector(
-                onTap: _handleTargetHit,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 100),
-                  width: _targetSize,
-                  height: _targetSize,
-                  decoration: const BoxDecoration(
-                    color: Colors.redAccent,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black26,
-                        blurRadius: 10,
-                      ),
-                    ],
-                  ),
-                  child: const Center(
-                    child: Text(
-                      "TAP",
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.8,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
+  Widget _statItem(String label, String value, {Color color = Colors.black87}) {
+    return Column(
+      children: [
+        Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        Text(value, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: color)),
+      ],
     );
   }
 }

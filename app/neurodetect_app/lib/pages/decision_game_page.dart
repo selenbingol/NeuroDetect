@@ -19,24 +19,35 @@ class _DecisionGamePageState extends State<DecisionGamePage> {
   final Random _random = Random();
 
   static const int _maxRounds = 10;
+  static const int _stimulusVisibleMs = 2000; // 2 saniye klinik karar için ideal
+
+  double _currentTaskAreaHeight = 430;
 
   int? _sessionId;
   bool _isLoadingSession = true;
   bool _isGameFinished = false;
   bool _isAiLoading = false;
 
-  String _message = "Session is starting...";
   int _currentRound = 0;
-  int _correctCount = 0;
-  int _missCount = 0;
-  int _falseTapCount = 0;
-
-  String? _currentStimulus; // "GREEN" or "RED"
-  int _stimulusShownAt = 0;
-  bool _awaitingResponse = false;
-  Timer? _roundTimer;
+  
+  // --- GO / NO-GO KLİNİK METRİKLERİ ---
+  int _tapCount = 0;          // YEŞİL -> BASTI (Doğru)
+  int _correctNoGoCount = 0;  // KIRMIZI -> BEKLEDİ (Doğru İnhibisyon)
+  int _falseAlarmCount = 0;   // KIRMIZI -> BASTI (Commission Error / Dürtüsel)
+  int _omissionCount = 0;     // YEŞİL -> BASMADI (Timeout / Dikkatsizlik)
+  int _falseStartCount = 0;   // RENK YOK -> BASTI (Acelecilik)
 
   final List<int> _reactionTimes = [];
+
+  String? _currentStimulus; // "GREEN" (Go) veya "RED" (No-Go)
+  int _stimulusShownAt = 0;
+  
+  bool _isWaitingForStimulus = false;
+  bool _eventHandled = false; // Her round tek bir event almalı
+  String _feedbackMessage = ""; // Kullanıcıya geri bildirim mesajı
+
+  Timer? _stimulusDelayTimer;
+  Timer? _stimulusTimeoutTimer;
 
   @override
   void initState() {
@@ -46,31 +57,26 @@ class _DecisionGamePageState extends State<DecisionGamePage> {
 
   @override
   void dispose() {
-    _roundTimer?.cancel();
+    _stimulusDelayTimer?.cancel();
+    _stimulusTimeoutTimer?.cancel();
     super.dispose();
   }
 
   Future<void> _startSession() async {
-    final sessionId = await _apiService.startSession(widget.user.userId);
-
+    final sessionId = await _apiService.startSession(widget.user.userId, "decision");
     if (!mounted) return;
 
     setState(() {
       _sessionId = sessionId;
       _isLoadingSession = false;
-      _message = sessionId != null ? "Session ready" : "Connection error";
     });
 
     if (sessionId != null) {
-      Future.delayed(const Duration(milliseconds: 900), _startNextRound);
+      Future.delayed(const Duration(milliseconds: 900), _prepareNextRound);
     }
   }
 
-  bool _isGoStimulus(String stimulus) {
-    return stimulus == "GREEN";
-  }
-
-  void _startNextRound() {
+  void _prepareNextRound() {
     if (_isGameFinished) return;
 
     if (_currentRound >= _maxRounds) {
@@ -78,83 +84,130 @@ class _DecisionGamePageState extends State<DecisionGamePage> {
       return;
     }
 
-    _roundTimer?.cancel();
-
-    final stimulus = _random.nextBool() ? "GREEN" : "RED";
-
     setState(() {
       _currentRound++;
-      _currentStimulus = stimulus;
-      _awaitingResponse = true;
-      _stimulusShownAt = DateTime.now().millisecondsSinceEpoch;
-      _message = stimulus == "GREEN"
-          ? "Tap the screen"
-          : "Do not tap the screen";
+      _currentStimulus = null;
+      _isWaitingForStimulus = true;
+      _eventHandled = false;
+      _feedbackMessage = "";
     });
 
-    _roundTimer = Timer(const Duration(milliseconds: 1500), () {
-      if (!_awaitingResponse || !mounted) return;
-
-      final isGo = _isGoStimulus(_currentStimulus!);
-
-      setState(() {
-        if (isGo) {
-          _missCount++;
-        } else {
-          _correctCount++;
-        }
-
-        _awaitingResponse = false;
-        _currentStimulus = null;
-        _message = "Get ready for the next round...";
-      });
-
-      Future.delayed(const Duration(milliseconds: 800), _startNextRound);
+    // 1000ms - 2500ms arası rastgele bekleme
+    final delay = 1000 + _random.nextInt(1500);
+    _stimulusDelayTimer = Timer(Duration(milliseconds: delay), () {
+      if (!mounted || _isGameFinished) return;
+      _showStimulus();
     });
   }
 
-  void _handleTap() {
-    if (_isLoadingSession || _isGameFinished || !_awaitingResponse) return;
-
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final reactionTime = now - _stimulusShownAt;
-    final isGo = _isGoStimulus(_currentStimulus!);
-
-    _roundTimer?.cancel();
+  void _showStimulus() {
+    // %70 Go (Yeşil), %30 No-Go (Kırmızı) standardı
+    final stimulus = _random.nextDouble() < 0.7 ? "GREEN" : "RED";
 
     setState(() {
-      if (isGo) {
-        _correctCount++;
-        _reactionTimes.add(reactionTime);
-      } else {
-        _falseTapCount++;
-      }
-
-      _awaitingResponse = false;
-      _currentStimulus = null;
-      _message = "Get ready for the next round...";
+      _currentStimulus = stimulus;
+      _isWaitingForStimulus = false;
+      _stimulusShownAt = DateTime.now().millisecondsSinceEpoch;
     });
 
-    Future.delayed(const Duration(milliseconds: 800), _startNextRound);
+    _stimulusTimeoutTimer = Timer(const Duration(milliseconds: _stimulusVisibleMs), () {
+      if (!mounted || _eventHandled) return;
+      
+      // Süre doldu ve kullanıcı ekrana dokunmadıysa
+      if (_currentStimulus == "GREEN") {
+        _handleEvent(eventType: "omission"); // Go kaçırıldı
+      } else if (_currentStimulus == "RED") {
+        _handleEvent(eventType: "correct_nogo"); // No-Go başarıyla beklendi
+      }
+    });
+  }
+
+  // --- MERKEZİ OLAY YÖNETİMİ ---
+  void _handleEvent({required String eventType}) {
+    if (_isGameFinished || _eventHandled) return;
+    _eventHandled = true; // Round kilitlendi
+
+    _stimulusDelayTimer?.cancel();
+    _stimulusTimeoutTimer?.cancel();
+
+    setState(() {
+      if (eventType == "tap") {
+        _tapCount++;
+        _reactionTimes.add(DateTime.now().millisecondsSinceEpoch - _stimulusShownAt);
+        _feedbackMessage = "Correct";
+      } else if (eventType == "false_alarm") {
+        _falseAlarmCount++;
+        _feedbackMessage = "Do not tap red";
+      } else if (eventType == "omission") {
+        _omissionCount++;
+        _feedbackMessage = "Too slow";
+      } else if (eventType == "correct_nogo") {
+        _correctNoGoCount++;
+        _feedbackMessage = "Good inhibition";
+      } else if (eventType == "false_start") {
+        _falseStartCount++;
+        _feedbackMessage = "Too early";
+      }
+
+      _currentStimulus = null;
+      _isWaitingForStimulus = false;
+    });
+
+    Future.delayed(const Duration(milliseconds: 800), _prepareNextRound);
+  }
+
+  // --- EKRAN DOKUNUŞU ---
+  void _handleTaskAreaTap() {
+    if (_isLoadingSession || _isGameFinished || _eventHandled) return;
+
+    if (_isWaitingForStimulus) {
+      _handleEvent(eventType: "false_start"); // Uyaran gelmeden bastı
+    } else if (_currentStimulus == "GREEN") {
+      _handleEvent(eventType: "tap"); // Yeşile bastı
+    } else if (_currentStimulus == "RED") {
+      _handleEvent(eventType: "false_alarm"); // Kırmızıya bastı
+    }
   }
 
   Future<void> _finishGame() async {
     if (_isGameFinished || _sessionId == null) return;
 
-    final totalRounds = _maxRounds;
-    final accuracy =
-        totalRounds == 0 ? 0.0 : (_correctCount / totalRounds) * 100;
+    final totalCorrect = _tapCount + _correctNoGoCount;
+    final totalAttempts = _tapCount + _correctNoGoCount + _falseAlarmCount + _omissionCount + _falseStartCount;
+    final accuracy = totalAttempts == 0 ? 0.0 : (totalCorrect / totalAttempts) * 100;
 
     final avgReactionTime = _reactionTimes.isEmpty
         ? 0.0
         : _reactionTimes.reduce((a, b) => a + b) / _reactionTimes.length;
 
-    final score = (_correctCount * 10) - (_falseTapCount * 5);
-    final totalMisses = _missCount + _falseTapCount;
+    // Ek Klinik Metrikler (Protokol Madde 8)
+    final falseAlarmRate = totalAttempts > 0 ? (_falseAlarmCount / totalAttempts) * 100 : 0.0;
+    final omissionRate = totalAttempts > 0 ? (_omissionCount / totalAttempts) * 100 : 0.0;
+    final falseStartRate = totalAttempts > 0 ? (_falseStartCount / totalAttempts) * 100 : 0.0;
+
+    // RT Variability (Standart Sapma)
+    double rtStd = 0.0;
+    if (_reactionTimes.length > 1) {
+      final mean = avgReactionTime;
+      final variance = _reactionTimes.map((rt) => (rt - mean) * (rt - mean)).reduce((a, b) => a + b) / _reactionTimes.length;
+      rtStd = sqrt(variance);
+    }
+
+    debugPrint("=== DECISION GAME KLİNİK METRİKLER ===");
+    debugPrint("Hit Rate: ${accuracy.toStringAsFixed(1)}%");
+    debugPrint("False Alarm Rate: ${falseAlarmRate.toStringAsFixed(1)}%");
+    debugPrint("Omission Rate: ${omissionRate.toStringAsFixed(1)}%");
+    debugPrint("False Start Rate: ${falseStartRate.toStringAsFixed(1)}%");
+    debugPrint("Avg RT (tap only): ${avgReactionTime.toStringAsFixed(0)} ms");
+    debugPrint("RT Std: ${rtStd.toStringAsFixed(1)} ms");
+
+    // Skor hesaplama: Doğrular + puan, hatalar - puan (Özellikle False Alarm ağır cezalandırılır)
+    final score = (totalCorrect * 10) - (_falseAlarmCount * 15) - (_falseStartCount * 5) - (_omissionCount * 2);
+    final totalMisses = _omissionCount + _falseStartCount + _falseAlarmCount;
 
     final result = TestResult(
       reactionTime: avgReactionTime.round(),
-      isSuccess: true,
+      isSuccess: _tapCount > 0 || _correctNoGoCount > 0,
       accuracy: accuracy,
       score: score < 0 ? 0 : score,
       timestamp: DateTime.now(),
@@ -163,133 +216,208 @@ class _DecisionGamePageState extends State<DecisionGamePage> {
     setState(() {
       _isGameFinished = true;
       _isAiLoading = true;
-      _message = "Finalising assessment...";
     });
 
-    await _apiService.sendGameMetrics(result, _sessionId!, totalMisses);
+    // Eski sendGameMetrics satırını silip bunu yapıştırın:
+    await _apiService.sendGameMetrics(
+      sessionId: _sessionId!,
+      score: result.score,
+      reactionTimeMs: result.reactionTime,
+      accuracyRate: result.accuracy,
+      tapCount: _tapCount + _correctNoGoCount, // Toplam doğru kararlar
+      falseAlarmCount: _falseAlarmCount,
+      omissionCount: _omissionCount,
+      falseStartCount: _falseStartCount,
+      wrongTapCount: 0, // Decision oyununda koordinat hatası yok
+      timeoutCount: 0,  // Omission olarak sayılıyor
+    );
     await _apiService.endSession(_sessionId!);
 
     try {
       await _apiService.getAiPrediction(
         mri: [1600.0, 0.75, 1.0],
         clinical: [75.0, 14.0, 2.0, 28.0, 0.0, 1.0],
-        game: [
-          avgReactionTime,
-          accuracy,
-          totalMisses.toDouble(),
-        ],
+        game: [avgReactionTime, accuracy, totalMisses.toDouble()],
       );
     } catch (e) {
       debugPrint("AI error: $e");
     }
 
     if (!mounted) return;
-
-    setState(() {
-      _isAiLoading = false;
-    });
-
+    setState(() => _isAiLoading = false);
     Navigator.pop(context);
   }
 
-  Color _stimulusColor() {
-    if (_currentStimulus == "GREEN") return Colors.green;
-    return Colors.redAccent;
+  String _reactionText() {
+    if (_reactionTimes.isEmpty) return "-";
+    final avg = _reactionTimes.reduce((a, b) => a + b) / _reactionTimes.length;
+    return "${avg.toStringAsFixed(0)} ms";
   }
 
-  String _stimulusText() {
-    if (_currentStimulus == "GREEN") return "TAP";
-    return "WAIT";
+  Color _stimulusColor() {
+    if (_currentStimulus == "GREEN") return Colors.greenAccent.shade700;
+    if (_currentStimulus == "RED") return Colors.redAccent.shade700;
+    return Colors.transparent;
   }
 
   @override
   Widget build(BuildContext context) {
-    final accuracy = _currentRound == 0
-        ? 0.0
-        : (_correctCount / _currentRound) * 100;
+    final accuracy = _currentRound == 0 ? 0.0 : ((_tapCount + _correctNoGoCount) / _currentRound) * 100;
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF4F7FB),
       appBar: AppBar(
-        title: Text("Decision Task - ${widget.user.username}"),
+        backgroundColor: const Color(0xFFF4F7FB),
+        elevation: 0,
         centerTitle: true,
+        automaticallyImplyLeading: false,
+        title: Text("Decision Task - ${widget.user.username}", style: const TextStyle(color: Color(0xFF1C2430), fontWeight: FontWeight.w700)),
       ),
-      body: GestureDetector(
-        onTap: _handleTap,
-        behavior: HitTestBehavior.opaque,
-        child: Stack(
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final availableHeight = constraints.maxHeight - 40.0 - 18.0;
+            final taskHeight = availableHeight.clamp(260.0, 520.0);
+
+            if (_currentTaskAreaHeight != taskHeight) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) return;
+                setState(() => _currentTaskAreaHeight = taskHeight);
+              });
+            }
+
+            return Stack(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                  child: Column(
+                    children: [
+                      _buildTopPanel(accuracy),
+                      const SizedBox(height: 18.0),
+                      Expanded(child: _buildTaskArea(taskHeight)),
+                    ],
+                  ),
+                ),
+                if (_isLoadingSession || _isAiLoading || _isGameFinished)
+                  Container(
+                    color: Colors.black.withOpacity(0.08),
+                    child: const Center(child: CircularProgressIndicator()),
+                  ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTopPanel(double accuracy) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: const [BoxShadow(color: Color(0x14000000), blurRadius: 20, offset: Offset(0, 8))],
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              _buildMetricCard(icon: Icons.flag_outlined, title: "Round", value: "$_currentRound / $_maxRounds"),
+              const SizedBox(width: 12),
+              _buildMetricCard(icon: Icons.speed_outlined, title: "Avg Reaction", value: _reactionText()),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _buildMetricCard(icon: Icons.check_circle_outline, title: "Accuracy", value: "%${accuracy.toStringAsFixed(1)}"),
+              const SizedBox(width: 12),
+              _buildMetricCard(icon: Icons.warning_amber_rounded, title: "False Alarm", value: "$_falseAlarmCount", valueColor: Colors.redAccent),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMetricCard({required IconData icon, required String title, required String value, Color? valueColor}) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: const Color(0xFFE5E7EB)),
+        ),
+        child: Row(
           children: [
-            Positioned(
-              top: 20,
-              left: 20,
-              right: 20,
-              child: Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.95),
-                  borderRadius: BorderRadius.circular(14),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Colors.black12,
-                      blurRadius: 6,
-                    ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      "Rule: Tap GREEN, do not tap RED.",
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF1E5F92),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text("Round: $_currentRound / $_maxRounds"),
-                    Text("Accuracy: %${accuracy.toStringAsFixed(1)}"),
-                    Text("Correct Responses: $_correctCount"),
-                    Text("Misses / False Taps: ${_missCount + _falseTapCount}"),
-                    Text("Status: $_message"),
-                  ],
-                ),
+            Icon(icon, color: const Color(0xFF1E6BA8), size: 22),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(fontSize: 12.5, color: Color(0xFF6B7280))),
+                  const SizedBox(height: 3),
+                  Text(value, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: valueColor ?? const Color(0xFF1C2430))),
+                ],
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
 
-            if (_isLoadingSession)
-              const Center(child: CircularProgressIndicator()),
-
+  Widget _buildTaskArea(double taskHeight) {
+    return GestureDetector(
+      onTap: _handleTaskAreaTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        height: taskHeight,
+        width: double.infinity,
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFFFDFEFF), Color(0xFFF3F7FB)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(color: const Color(0xFFE5E7EB)),
+        ),
+        child: Stack(
+          children: [
+            if (!_isLoadingSession && !_isGameFinished && _currentStimulus == null)
+              Center(
+                child: Text(
+                  _feedbackMessage.isNotEmpty ? _feedbackMessage : "Wait for the next signal",
+                  style: TextStyle(
+                    fontSize: _feedbackMessage.isNotEmpty ? 28 : 22,
+                    fontWeight: _feedbackMessage.isNotEmpty ? FontWeight.w700 : FontWeight.w600,
+                    color: const Color(0xFF1C2430),
+                  ),
+                ),
+              ),
             if (!_isLoadingSession && !_isGameFinished && _currentStimulus != null)
               Center(
                 child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  width: 190,
-                  height: 190,
+                  duration: const Duration(milliseconds: 150),
+                  width: 220,
+                  height: 220,
                   decoration: BoxDecoration(
                     color: _stimulusColor(),
-                    borderRadius: BorderRadius.circular(28),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Colors.black26,
-                        blurRadius: 12,
-                      ),
-                    ],
+                    borderRadius: BorderRadius.circular(30),
+                    boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 15)],
                   ),
                   child: Center(
                     child: Text(
-                      _stimulusText(),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 30,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 1.2,
-                      ),
+                      _currentStimulus == "GREEN" ? "TAP" : "WAIT",
+                      style: const TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.w900, letterSpacing: 2),
                     ),
                   ),
                 ),
               ),
-
-            if (_isGameFinished || _isAiLoading)
-              const Center(child: CircularProgressIndicator()),
           ],
         ),
       ),

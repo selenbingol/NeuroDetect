@@ -77,6 +77,62 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
     return "${dt.day}/${dt.month}/${dt.year} ${dt.hour}:${dt.minute}";
   }
 
+  String formatSessionType(String? sessionType) {
+  switch (sessionType) {
+    case "reaction":
+      return "Reaction Task";
+    case "decision":
+      return "Decision Task";
+    case "target_movement":
+      return "Target Movement Task";
+    default:
+      return "-";
+  }
+}
+Widget buildSessionTypeBadge(String? sessionType) {
+  String label;
+  Color backgroundColor;
+  Color textColor;
+
+  switch (sessionType) {
+    case "reaction":
+      label = "Reaction Task";
+      backgroundColor = const Color(0xFFE0F2FE);
+      textColor = const Color(0xFF0369A1);
+      break;
+    case "decision":
+      label = "Decision Task";
+      backgroundColor = const Color(0xFFF3E8FF);
+      textColor = const Color(0xFF7E22CE);
+      break;
+    case "target_movement":
+      label = "Target Movement Task";
+      backgroundColor = const Color(0xFFECFCCB);
+      textColor = const Color(0xFF4D7C0F);
+      break;
+    default:
+      label = "-";
+      backgroundColor = const Color(0xFFF3F4F6);
+      textColor = const Color(0xFF6B7280);
+  }
+
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+    decoration: BoxDecoration(
+      color: backgroundColor,
+      borderRadius: BorderRadius.circular(999),
+    ),
+    child: Text(
+      label,
+      style: TextStyle(
+        color: textColor,
+        fontSize: 12.5,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+  );
+}
+
   Color _riskColor(String? riskLevel) {
     switch ((riskLevel ?? "").toLowerCase()) {
       case "high":
@@ -332,57 +388,79 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
     );
   }
 
-  Widget _buildSessionTable() {
-    final sessions = _report!.sessions;
+ Widget _buildSessionTable() {
+  final sessions = _report!.sessions;
 
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: _cardStyle(),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text("Session History",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 16),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: DataTable(
-              columns: const [
-                DataColumn(label: Text("Date")),
-                DataColumn(label: Text("Score")),
-                DataColumn(label: Text("Accuracy")),
-                DataColumn(label: Text("Reaction")),
-                DataColumn(label: Text("Miss")),
-              ],
-              rows: List.generate(sessions.length, (i) {
-                final s = sessions[i];
+  return Container(
+    padding: const EdgeInsets.all(20),
+    decoration: _cardStyle(),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          "Session History",
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 16),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: DataTable(
+            columns: const [
+              DataColumn(label: Text("Date")),
+              DataColumn(label: Text("Score")),
+              DataColumn(label: Text("Accuracy")),
+              DataColumn(label: Text("Reaction")),
+              DataColumn(label: Text("Miss")),
+              DataColumn(label: Text("Session Type")),
+            ],
+            rows: List.generate(sessions.length, (i) {
+              final s = sessions[i];
 
-                return DataRow(
-                  color: MaterialStateProperty.resolveWith<Color?>(
-                    (states) =>
-                        i % 2 == 0 ? Colors.white : const Color(0xFFF9FAFB),
+              return DataRow(
+                color: MaterialStateProperty.resolveWith<Color?>(
+                  (states) =>
+                      i % 2 == 0 ? Colors.white : const Color(0xFFF9FAFB),
+                ),
+                cells: [
+                  DataCell(Text(formatDate(s.startTime))),
+                  DataCell(Text("${s.score ?? '-'}")),
+                  DataCell(
+                    Text(
+                      s.accuracyRate == null
+                          ? "-"
+                          : "${s.accuracyRate!.toStringAsFixed(1)}%",
+                    ),
                   ),
-                  cells: [
-                    DataCell(Text(formatDate(s.startTime))),
-                    DataCell(Text("${s.score ?? '-'}")),
-                    DataCell(Text(
-                        s.accuracyRate == null
-                            ? "-"
-                            : "${s.accuracyRate!.toStringAsFixed(1)}%",
-                    )),
-                    DataCell(Text(
-                        s.reactionTimeMs == null
-                            ? "-"
-                            : "${s.reactionTimeMs} ms",
-                    )),
-                    DataCell(Text("${s.missCount ?? '-'}")),
-                  ],
-                );
-              }),
-            ),
+                  DataCell(
+                    Text(
+                      s.reactionTimeMs == null
+                          ? "-"
+                          : "${s.reactionTimeMs} ms",
+                    ),
+                  ),
+                  DataCell(
+                    Tooltip(
+                      message: "False Starts: ${s.falseStartCount ?? 0}\nWrong Taps: ${s.wrongTapCount ?? 0}\nTimeouts: ${s.timeoutCount ?? 0}\nFalse Alarms: ${s.falseAlarmCount ?? 0}\nOmissions: ${s.omissionCount ?? 0}",
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text("${s.missCount ?? '-'}"),
+                          if (s.missCount != null && s.missCount! > 0) ...[
+                            const SizedBox(width: 4),
+                            const Icon(Icons.info_outline, size: 14, color: Colors.grey),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                  DataCell(buildSessionTypeBadge(s.sessionType)),
+                ],
+              );
+            }),
           ),
-        ],
-      ),
-    );
-  }
+        ),
+      ],
+    ),
+  );
+}
 }

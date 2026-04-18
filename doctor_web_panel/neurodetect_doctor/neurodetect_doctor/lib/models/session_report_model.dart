@@ -107,10 +107,17 @@ class SessionReportItem {
   final int sessionId;
   final String? startTime;
   final String? endTime;
+  final String? sessionType;
   final int? score;
   final double? accuracyRate;
   final int? reactionTimeMs;
   final int? missCount;
+  final int? tapCount;
+  final int? falseStartCount;
+  final int? wrongTapCount;
+  final int? timeoutCount;
+  final int? falseAlarmCount;
+  final int? omissionCount;
   final double? riskScore;
   final String? riskLevel;
   final String? riskAlert;
@@ -120,10 +127,17 @@ class SessionReportItem {
     required this.sessionId,
     required this.startTime,
     required this.endTime,
+    required this.sessionType,
     required this.score,
     required this.accuracyRate,
     required this.reactionTimeMs,
     required this.missCount,
+    required this.tapCount,
+    required this.falseStartCount,
+    required this.wrongTapCount,
+    required this.timeoutCount,
+    required this.falseAlarmCount,
+    required this.omissionCount,
     required this.riskScore,
     required this.riskLevel,
     required this.riskAlert,
@@ -135,10 +149,17 @@ class SessionReportItem {
       sessionId: json['session_id'],
       startTime: json['start_time'],
       endTime: json['end_time'],
+      sessionType: json['session_type'],
       score: json['score'],
       accuracyRate: (json['accuracy_rate'] as num?)?.toDouble(),
       reactionTimeMs: json['reaction_time_ms'],
       missCount: json['miss_count'],
+      tapCount: json['tap_count'],
+      falseStartCount: json['false_start_count'],
+      wrongTapCount: json['wrong_tap_count'],
+      timeoutCount: json['timeout_count'],
+      falseAlarmCount: json['false_alarm_count'],
+      omissionCount: json['omission_count'],
       riskScore: (json['risk_score'] as num?)?.toDouble(),
       riskLevel: json['risk_level'],
       riskAlert: json['risk_alert'],
