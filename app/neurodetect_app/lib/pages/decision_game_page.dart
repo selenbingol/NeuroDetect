@@ -19,7 +19,7 @@ class _DecisionGamePageState extends State<DecisionGamePage> {
   final Random _random = Random();
 
   static const int _maxRounds = 10;
-  static const int _stimulusVisibleMs = 2000; // 2 saniye klinik karar için ideal
+  static const int _stimulusVisibleMs = 2000;
 
   double _currentTaskAreaHeight = 430;
 
@@ -29,22 +29,23 @@ class _DecisionGamePageState extends State<DecisionGamePage> {
   bool _isAiLoading = false;
 
   int _currentRound = 0;
-  
-  // --- GO / NO-GO KLİNİK METRİKLERİ ---
-  int _tapCount = 0;          // YEŞİL -> BASTI (Doğru)
-  int _correctNoGoCount = 0;  // KIRMIZI -> BEKLEDİ (Doğru İnhibisyon)
-  int _falseAlarmCount = 0;   // KIRMIZI -> BASTI (Commission Error / Dürtüsel)
-  int _omissionCount = 0;     // YEŞİL -> BASMADI (Timeout / Dikkatsizlik)
-  int _falseStartCount = 0;   // RENK YOK -> BASTI (Acelecilik)
+
+  // GO / NO-GO metrikleri
+  int _tapCount = 0; // GREEN -> bastı
+  int _correctNoGoCount = 0; // RED -> bekledi
+  int _falseAlarmCount = 0; // RED -> bastı
+  int _omissionCount = 0; // GREEN -> basmadı
+  int _falseStartCount = 0; // stimulus gelmeden bastı
 
   final List<int> _reactionTimes = [];
+  late final List<String> _stimulusSequence;
 
-  String? _currentStimulus; // "GREEN" (Go) veya "RED" (No-Go)
+  String? _currentStimulus; // GREEN / RED
   int _stimulusShownAt = 0;
-  
+
   bool _isWaitingForStimulus = false;
-  bool _eventHandled = false; // Her round tek bir event almalı
-  String _feedbackMessage = ""; // Kullanıcıya geri bildirim mesajı
+  bool _eventHandled = false;
+  String _feedbackMessage = "";
 
   Timer? _stimulusDelayTimer;
   Timer? _stimulusTimeoutTimer;
@@ -52,6 +53,7 @@ class _DecisionGamePageState extends State<DecisionGamePage> {
   @override
   void initState() {
     super.initState();
+    _stimulusSequence = _buildStimulusSequence();
     _startSession();
   }
 
@@ -62,8 +64,19 @@ class _DecisionGamePageState extends State<DecisionGamePage> {
     super.dispose();
   }
 
+  List<String> _buildStimulusSequence() {
+    final sequence = <String>[
+      ...List.filled(7, "GREEN"),
+      ...List.filled(3, "RED"),
+    ];
+    sequence.shuffle(_random);
+    return sequence;
+  }
+
   Future<void> _startSession() async {
-    final sessionId = await _apiService.startSession(widget.user.userId, "decision");
+    final sessionId =
+        await _apiService.startSession(widget.user.userId, "decision");
+
     if (!mounted) return;
 
     setState(() {
@@ -92,7 +105,6 @@ class _DecisionGamePageState extends State<DecisionGamePage> {
       _feedbackMessage = "";
     });
 
-    // 1000ms - 2500ms arası rastgele bekleme
     final delay = 1000 + _random.nextInt(1500);
     _stimulusDelayTimer = Timer(Duration(milliseconds: delay), () {
       if (!mounted || _isGameFinished) return;
@@ -101,8 +113,7 @@ class _DecisionGamePageState extends State<DecisionGamePage> {
   }
 
   void _showStimulus() {
-    // %70 Go (Yeşil), %30 No-Go (Kırmızı) standardı
-    final stimulus = _random.nextDouble() < 0.7 ? "GREEN" : "RED";
+    final stimulus = _stimulusSequence[_currentRound - 1];
 
     setState(() {
       _currentStimulus = stimulus;
@@ -110,22 +121,21 @@ class _DecisionGamePageState extends State<DecisionGamePage> {
       _stimulusShownAt = DateTime.now().millisecondsSinceEpoch;
     });
 
-    _stimulusTimeoutTimer = Timer(const Duration(milliseconds: _stimulusVisibleMs), () {
+    _stimulusTimeoutTimer =
+        Timer(const Duration(milliseconds: _stimulusVisibleMs), () {
       if (!mounted || _eventHandled) return;
-      
-      // Süre doldu ve kullanıcı ekrana dokunmadıysa
+
       if (_currentStimulus == "GREEN") {
-        _handleEvent(eventType: "omission"); // Go kaçırıldı
+        _handleEvent(eventType: "omission");
       } else if (_currentStimulus == "RED") {
-        _handleEvent(eventType: "correct_nogo"); // No-Go başarıyla beklendi
+        _handleEvent(eventType: "correct_nogo");
       }
     });
   }
 
-  // --- MERKEZİ OLAY YÖNETİMİ ---
   void _handleEvent({required String eventType}) {
     if (_isGameFinished || _eventHandled) return;
-    _eventHandled = true; // Round kilitlendi
+    _eventHandled = true;
 
     _stimulusDelayTimer?.cancel();
     _stimulusTimeoutTimer?.cancel();
@@ -133,7 +143,8 @@ class _DecisionGamePageState extends State<DecisionGamePage> {
     setState(() {
       if (eventType == "tap") {
         _tapCount++;
-        _reactionTimes.add(DateTime.now().millisecondsSinceEpoch - _stimulusShownAt);
+        _reactionTimes
+            .add(DateTime.now().millisecondsSinceEpoch - _stimulusShownAt);
         _feedbackMessage = "Correct";
       } else if (eventType == "false_alarm") {
         _falseAlarmCount++;
@@ -156,16 +167,15 @@ class _DecisionGamePageState extends State<DecisionGamePage> {
     Future.delayed(const Duration(milliseconds: 800), _prepareNextRound);
   }
 
-  // --- EKRAN DOKUNUŞU ---
   void _handleTaskAreaTap() {
     if (_isLoadingSession || _isGameFinished || _eventHandled) return;
 
     if (_isWaitingForStimulus) {
-      _handleEvent(eventType: "false_start"); // Uyaran gelmeden bastı
+      _handleEvent(eventType: "false_start");
     } else if (_currentStimulus == "GREEN") {
-      _handleEvent(eventType: "tap"); // Yeşile bastı
+      _handleEvent(eventType: "tap");
     } else if (_currentStimulus == "RED") {
-      _handleEvent(eventType: "false_alarm"); // Kırmızıya bastı
+      _handleEvent(eventType: "false_alarm");
     }
   }
 
@@ -173,44 +183,65 @@ class _DecisionGamePageState extends State<DecisionGamePage> {
     if (_isGameFinished || _sessionId == null) return;
 
     final totalCorrect = _tapCount + _correctNoGoCount;
-    final totalAttempts = _tapCount + _correctNoGoCount + _falseAlarmCount + _omissionCount + _falseStartCount;
-    final accuracy = totalAttempts == 0 ? 0.0 : (totalCorrect / totalAttempts) * 100;
+    final totalAttempts = _tapCount +
+        _correctNoGoCount +
+        _falseAlarmCount +
+        _omissionCount +
+        _falseStartCount;
+
+    final accuracy =
+        totalAttempts == 0 ? 0.0 : (totalCorrect / totalAttempts) * 100;
 
     final avgReactionTime = _reactionTimes.isEmpty
         ? 0.0
         : _reactionTimes.reduce((a, b) => a + b) / _reactionTimes.length;
 
-    // Ek Klinik Metrikler (Protokol Madde 8)
-    final falseAlarmRate = totalAttempts > 0 ? (_falseAlarmCount / totalAttempts) * 100 : 0.0;
-    final omissionRate = totalAttempts > 0 ? (_omissionCount / totalAttempts) * 100 : 0.0;
-    final falseStartRate = totalAttempts > 0 ? (_falseStartCount / totalAttempts) * 100 : 0.0;
+    final falseAlarmRate =
+        totalAttempts > 0 ? (_falseAlarmCount / totalAttempts) * 100 : 0.0;
+    final omissionRate =
+        totalAttempts > 0 ? (_omissionCount / totalAttempts) * 100 : 0.0;
+    final falseStartRate =
+        totalAttempts > 0 ? (_falseStartCount / totalAttempts) * 100 : 0.0;
 
-    // RT Variability (Standart Sapma)
     double rtStd = 0.0;
     if (_reactionTimes.length > 1) {
       final mean = avgReactionTime;
-      final variance = _reactionTimes.map((rt) => (rt - mean) * (rt - mean)).reduce((a, b) => a + b) / _reactionTimes.length;
+      final variance = _reactionTimes
+              .map((rt) => (rt - mean) * (rt - mean))
+              .reduce((a, b) => a + b) /
+          _reactionTimes.length;
       rtStd = sqrt(variance);
     }
 
     debugPrint("=== DECISION GAME KLİNİK METRİKLER ===");
-    debugPrint("Hit Rate: ${accuracy.toStringAsFixed(1)}%");
+    debugPrint("Accuracy: ${accuracy.toStringAsFixed(1)}%");
     debugPrint("False Alarm Rate: ${falseAlarmRate.toStringAsFixed(1)}%");
     debugPrint("Omission Rate: ${omissionRate.toStringAsFixed(1)}%");
     debugPrint("False Start Rate: ${falseStartRate.toStringAsFixed(1)}%");
     debugPrint("Avg RT (tap only): ${avgReactionTime.toStringAsFixed(0)} ms");
     debugPrint("RT Std: ${rtStd.toStringAsFixed(1)} ms");
 
-    // Skor hesaplama: Doğrular + puan, hatalar - puan (Özellikle False Alarm ağır cezalandırılır)
-    final score = (totalCorrect * 10) - (_falseAlarmCount * 15) - (_falseStartCount * 5) - (_omissionCount * 2);
-    final totalMisses = _omissionCount + _falseStartCount + _falseAlarmCount;
+    final score = (totalCorrect * 10) -
+        (_falseAlarmCount * 15) -
+        (_falseStartCount * 5) -
+        (_omissionCount * 2);
+
+    final totalMisses =
+        _falseAlarmCount + _omissionCount + _falseStartCount;
 
     final result = TestResult(
       reactionTime: avgReactionTime.round(),
-      isSuccess: _tapCount > 0 || _correctNoGoCount > 0,
+      isSuccess: true,
       accuracy: accuracy,
-      score: score < 0 ? 0 : score,
+      score: score,
       timestamp: DateTime.now(),
+      tapCount: _tapCount + _correctNoGoCount,
+      missCount: totalMisses,
+      falseStartCount: _falseStartCount,
+      wrongTapCount: 0,
+      timeoutCount: 0,
+      falseAlarmCount: _falseAlarmCount,
+      omissionCount: _omissionCount,
     );
 
     setState(() {
@@ -218,19 +249,20 @@ class _DecisionGamePageState extends State<DecisionGamePage> {
       _isAiLoading = true;
     });
 
-    // Eski sendGameMetrics satırını silip bunu yapıştırın:
     await _apiService.sendGameMetrics(
       sessionId: _sessionId!,
       score: result.score,
       reactionTimeMs: result.reactionTime,
       accuracyRate: result.accuracy,
-      tapCount: _tapCount + _correctNoGoCount, // Toplam doğru kararlar
-      falseAlarmCount: _falseAlarmCount,
-      omissionCount: _omissionCount,
-      falseStartCount: _falseStartCount,
-      wrongTapCount: 0, // Decision oyununda koordinat hatası yok
-      timeoutCount: 0,  // Omission olarak sayılıyor
+      missCount: result.missCount,
+      tapCount: result.tapCount,
+      falseStartCount: result.falseStartCount,
+      wrongTapCount: result.wrongTapCount,
+      timeoutCount: result.timeoutCount,
+      falseAlarmCount: result.falseAlarmCount,
+      omissionCount: result.omissionCount,
     );
+
     await _apiService.endSession(_sessionId!);
 
     try {
@@ -244,13 +276,18 @@ class _DecisionGamePageState extends State<DecisionGamePage> {
     }
 
     if (!mounted) return;
-    setState(() => _isAiLoading = false);
+
+    setState(() {
+      _isAiLoading = false;
+    });
+
     Navigator.pop(context);
   }
 
   String _reactionText() {
     if (_reactionTimes.isEmpty) return "-";
-    final avg = _reactionTimes.reduce((a, b) => a + b) / _reactionTimes.length;
+    final avg =
+        _reactionTimes.reduce((a, b) => a + b) / _reactionTimes.length;
     return "${avg.toStringAsFixed(0)} ms";
   }
 
@@ -262,7 +299,9 @@ class _DecisionGamePageState extends State<DecisionGamePage> {
 
   @override
   Widget build(BuildContext context) {
-    final accuracy = _currentRound == 0 ? 0.0 : ((_tapCount + _correctNoGoCount) / _currentRound) * 100;
+    final accuracy = _currentRound == 0
+        ? 0.0
+        : ((_tapCount + _correctNoGoCount) / _currentRound) * 100;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4F7FB),
@@ -271,7 +310,13 @@ class _DecisionGamePageState extends State<DecisionGamePage> {
         elevation: 0,
         centerTitle: true,
         automaticallyImplyLeading: false,
-        title: Text("Decision Task - ${widget.user.username}", style: const TextStyle(color: Color(0xFF1C2430), fontWeight: FontWeight.w700)),
+        title: Text(
+          "Decision Task - ${widget.user.username}",
+          style: const TextStyle(
+            color: Color(0xFF1C2430),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
       ),
       body: SafeArea(
         child: LayoutBuilder(
@@ -301,7 +346,9 @@ class _DecisionGamePageState extends State<DecisionGamePage> {
                 if (_isLoadingSession || _isAiLoading || _isGameFinished)
                   Container(
                     color: Colors.black.withOpacity(0.08),
-                    child: const Center(child: CircularProgressIndicator()),
+                    child: const Center(
+                      child: CircularProgressIndicator(),
+                    ),
                   ),
               ],
             );
@@ -317,23 +364,46 @@ class _DecisionGamePageState extends State<DecisionGamePage> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(22),
-        boxShadow: const [BoxShadow(color: Color(0x14000000), blurRadius: 20, offset: Offset(0, 8))],
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x14000000),
+            blurRadius: 20,
+            offset: Offset(0, 8),
+          ),
+        ],
       ),
       child: Column(
         children: [
           Row(
             children: [
-              _buildMetricCard(icon: Icons.flag_outlined, title: "Round", value: "$_currentRound / $_maxRounds"),
+              _buildMetricCard(
+                icon: Icons.flag_outlined,
+                title: "Round",
+                value: "$_currentRound / $_maxRounds",
+              ),
               const SizedBox(width: 12),
-              _buildMetricCard(icon: Icons.speed_outlined, title: "Avg Reaction", value: _reactionText()),
+              _buildMetricCard(
+                icon: Icons.speed_outlined,
+                title: "Avg Reaction",
+                value: _reactionText(),
+              ),
             ],
           ),
           const SizedBox(height: 12),
           Row(
             children: [
-              _buildMetricCard(icon: Icons.check_circle_outline, title: "Accuracy", value: "%${accuracy.toStringAsFixed(1)}"),
+              _buildMetricCard(
+                icon: Icons.check_circle_outline,
+                title: "Accuracy",
+                value: "%${accuracy.toStringAsFixed(1)}",
+              ),
               const SizedBox(width: 12),
-              _buildMetricCard(icon: Icons.warning_amber_rounded, title: "False Alarm", value: "$_falseAlarmCount", valueColor: Colors.redAccent),
+              _buildMetricCard(
+                icon: Icons.warning_amber_rounded,
+                title: "False Alarm",
+                value: "$_falseAlarmCount",
+                valueColor: Colors.redAccent,
+              ),
             ],
           ),
         ],
@@ -341,7 +411,12 @@ class _DecisionGamePageState extends State<DecisionGamePage> {
     );
   }
 
-  Widget _buildMetricCard({required IconData icon, required String title, required String value, Color? valueColor}) {
+  Widget _buildMetricCard({
+    required IconData icon,
+    required String title,
+    required String value,
+    Color? valueColor,
+  }) {
     return Expanded(
       child: Container(
         padding: const EdgeInsets.all(14),
@@ -358,9 +433,22 @@ class _DecisionGamePageState extends State<DecisionGamePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(fontSize: 12.5, color: Color(0xFF6B7280))),
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      color: Color(0xFF6B7280),
+                    ),
+                  ),
                   const SizedBox(height: 3),
-                  Text(value, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: valueColor ?? const Color(0xFF1C2430))),
+                  Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: valueColor ?? const Color(0xFF1C2430),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -391,15 +479,21 @@ class _DecisionGamePageState extends State<DecisionGamePage> {
             if (!_isLoadingSession && !_isGameFinished && _currentStimulus == null)
               Center(
                 child: Text(
-                  _feedbackMessage.isNotEmpty ? _feedbackMessage : "Wait for the next signal",
+                  _feedbackMessage.isNotEmpty
+                      ? _feedbackMessage
+                      : "Wait for the next signal",
                   style: TextStyle(
                     fontSize: _feedbackMessage.isNotEmpty ? 28 : 22,
-                    fontWeight: _feedbackMessage.isNotEmpty ? FontWeight.w700 : FontWeight.w600,
+                    fontWeight: _feedbackMessage.isNotEmpty
+                        ? FontWeight.w700
+                        : FontWeight.w600,
                     color: const Color(0xFF1C2430),
                   ),
                 ),
               ),
-            if (!_isLoadingSession && !_isGameFinished && _currentStimulus != null)
+            if (!_isLoadingSession &&
+                !_isGameFinished &&
+                _currentStimulus != null)
               Center(
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 150),
@@ -408,12 +502,19 @@ class _DecisionGamePageState extends State<DecisionGamePage> {
                   decoration: BoxDecoration(
                     color: _stimulusColor(),
                     borderRadius: BorderRadius.circular(30),
-                    boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 15)],
+                    boxShadow: const [
+                      BoxShadow(color: Colors.black26, blurRadius: 15),
+                    ],
                   ),
                   child: Center(
                     child: Text(
                       _currentStimulus == "GREEN" ? "TAP" : "WAIT",
-                      style: const TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.w900, letterSpacing: 2),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 36,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 2,
+                      ),
                     ),
                   ),
                 ),

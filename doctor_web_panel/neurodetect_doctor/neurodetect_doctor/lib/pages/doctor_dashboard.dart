@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/doctor_user_model.dart';
 import '../models/patient_summary_model.dart';
+import '../models/session_report_model.dart';
 import '../services/api_service.dart';
 import '../widgets/patient_table.dart';
 import '../widgets/stat_card.dart';
@@ -22,6 +23,9 @@ class _DoctorDashboardPageState extends State<DoctorDashboardPage> {
   String _errorMessage = "";
   List<PatientSummaryModel> _patients = [];
 
+  int _totalReactionSessions = 0;
+  int _totalDecisionSessions = 0;
+
   @override
   void initState() {
     super.initState();
@@ -32,15 +36,41 @@ class _DoctorDashboardPageState extends State<DoctorDashboardPage> {
     setState(() {
       _isLoading = true;
       _errorMessage = "";
+      _totalReactionSessions = 0;
+      _totalDecisionSessions = 0;
     });
 
     final patients = await _apiService.getPatients();
+
+    int reactionCount = 0;
+    int decisionCount = 0;
+
+    if (patients.isNotEmpty) {
+      final reports = await Future.wait<PatientReportModel?>(
+        patients.map((p) => _apiService.getPatientReport(p.userId)),
+      );
+
+      for (final report in reports) {
+        if (report == null) continue;
+
+        for (final session in report.sessions) {
+          if (session.sessionType == "reaction") {
+            reactionCount++;
+          } else if (session.sessionType == "decision") {
+            decisionCount++;
+          }
+        }
+      }
+    }
 
     if (!mounted) return;
 
     setState(() {
       _patients = patients;
+      _totalReactionSessions = reactionCount;
+      _totalDecisionSessions = decisionCount;
       _isLoading = false;
+
       if (patients.isEmpty) {
         _errorMessage = "No patient records found.";
       }
@@ -51,9 +81,9 @@ class _DoctorDashboardPageState extends State<DoctorDashboardPage> {
   Widget build(BuildContext context) {
     final totalPatients = _patients.length;
     final totalSessions = _patients.fold<int>(
-  0,
-  (sum, p) => sum + p.sessionDates.length,
-);
+      0,
+      (sum, p) => sum + p.sessionDates.length,
+    );
 
     return Scaffold(
       backgroundColor: const Color(0xFFF3F6FA),
@@ -86,8 +116,9 @@ class _DoctorDashboardPageState extends State<DoctorDashboardPage> {
       body: Padding(
         padding: const EdgeInsets.all(24),
         child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : Column(
+    ? const Center(child: CircularProgressIndicator())
+    : SingleChildScrollView(
+        child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
@@ -108,18 +139,29 @@ class _DoctorDashboardPageState extends State<DoctorDashboardPage> {
                   ),
                   const SizedBox(height: 24),
 
-                  Row(
+                  Wrap(
+                    spacing: 16,
+                    runSpacing: 16,
                     children: [
                       StatCard(
                         title: "Total Patients",
                         value: totalPatients.toString(),
                         icon: Icons.people_alt_outlined,
                       ),
-                      const SizedBox(width: 16),
                       StatCard(
                         title: "Total Sessions",
                         value: totalSessions.toString(),
                         icon: Icons.analytics_outlined,
+                      ),
+                      StatCard(
+                        title: "Reaction Sessions",
+                        value: _totalReactionSessions.toString(),
+                        icon: Icons.flash_on_outlined,
+                      ),
+                      StatCard(
+                        title: "Decision Sessions",
+                        value: _totalDecisionSessions.toString(),
+                        icon: Icons.psychology_alt_outlined,
                       ),
                     ],
                   ),
@@ -163,23 +205,22 @@ class _DoctorDashboardPageState extends State<DoctorDashboardPage> {
                         ),
                       ),
                     ),
-
-                  Expanded(
-                    child: PatientTable(
-                      patients: _patients,
-                      onPatientTap: (patient) {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => PatientDetailPage(patient: patient),
-                          ),
-                        );
-                      },
-                    ),
+                    PatientTable(
+                    patients: _patients,
+                    onPatientTap: (patient) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => PatientDetailPage(patient: patient),
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),
       ),
+    ),
     );
+    
   }
 }

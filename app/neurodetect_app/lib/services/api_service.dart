@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/user_model.dart';
-import '../models/test_result.dart';
 
 class ApiService {
   
@@ -75,45 +74,47 @@ class ApiService {
   }
 
   // --- VERİ TABANINA OYUN VERİLERİNİ KAYDETME ---
-  Future<bool> sendGameMetrics({
-    required int sessionId,
-    required int score,
-    required int reactionTimeMs,
-    required double accuracyRate,
-    int tapCount = 0,
-    int falseStartCount = 0,
-    int wrongTapCount = 0,
-    int timeoutCount = 0,
-    int falseAlarmCount = 0,
-    int omissionCount = 0,
-  }) async {
-    try {
-      final response = await http.post(
-        Uri.parse("$_baseUrl/save-metrics"),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "session_id": sessionId,
-          "score": score,
-          "reaction_time_ms": reactionTimeMs,
-          "accuracy_rate": accuracyRate,
-          "tap_count": tapCount,
-          "false_start_count": falseStartCount,
-          "wrong_tap_count": wrongTapCount,
-          "timeout_count": timeoutCount,
-          "false_alarm_count": falseAlarmCount,
-          "omission_count": omissionCount,
-        }),
-      );
+ Future<bool> sendGameMetrics({
+  required int sessionId,
+  required int score,
+  required int reactionTimeMs,
+  required double accuracyRate,
+  required int missCount,
+  int tapCount = 0,
+  int falseStartCount = 0,
+  int wrongTapCount = 0,
+  int timeoutCount = 0,
+  int falseAlarmCount = 0,
+  int omissionCount = 0,
+}) async {
+  try {
+    final response = await http.post(
+      Uri.parse("$_baseUrl/save-metrics"),
+      headers: {"Content-Type": "application/json"},
+      body: jsonEncode({
+        "session_id": sessionId,
+        "score": score,
+        "reaction_time_ms": reactionTimeMs,
+        "accuracy_rate": accuracyRate,
+        "miss_count": missCount,
+        "tap_count": tapCount,
+        "false_start_count": falseStartCount,
+        "wrong_tap_count": wrongTapCount,
+        "timeout_count": timeoutCount,
+        "false_alarm_count": falseAlarmCount,
+        "omission_count": omissionCount,
+      }),
+    );
 
-      if (response.statusCode != 200) {
-        print("Metric gönderilemedi: ${response.body}");
-      }
-      return response.statusCode == 200;
-    } catch (e) {
-      print("Save metrics hatası: $e");
-      return false;
+    if (response.statusCode != 200) {
+      print("Metric gönderilemedi: ${response.body}");
     }
+    return response.statusCode == 200;
+  } catch (e) {
+    print("Save metrics hatası: $e");
+    return false;
   }
+}
 
   // ======================================================
   // YAPAY ZEKA ANALİZ FONKSİYONU (FLASK BAĞLANTISI)

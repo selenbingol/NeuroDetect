@@ -208,20 +208,29 @@ class _ReactionGamePageState extends State<ReactionGamePage> {
       accuracy: accuracy,
       score: (_tapCount * 10) - (_falseStartCount * 5) - (_wrongTapCount * 2),
       timestamp: DateTime.now(),
-    );
 
-    await _apiService.sendGameMetrics(
-      sessionId: _sessionId!,
-      score: result.score,
-      reactionTimeMs: result.reactionTime,
-      accuracyRate: result.accuracy,
       tapCount: _tapCount,
+      missCount: totalMisses,
       falseStartCount: _falseStartCount,
       wrongTapCount: _wrongTapCount,
       timeoutCount: _timeoutCount,
-      falseAlarmCount: 0, // Reaction oyununda kullanılmıyor
-      omissionCount: 0,   // Reaction oyununda kullanılmıyor
-    );
+      falseAlarmCount: 0,
+      omissionCount: 0,
+);
+
+    await _apiService.sendGameMetrics(
+  sessionId: _sessionId!,
+  score: result.score,
+  reactionTimeMs: result.reactionTime,
+  accuracyRate: result.accuracy,
+  missCount: result.missCount,
+  tapCount: result.tapCount,
+  falseStartCount: result.falseStartCount,
+  wrongTapCount: result.wrongTapCount,
+  timeoutCount: result.timeoutCount,
+  falseAlarmCount: result.falseAlarmCount,
+  omissionCount: result.omissionCount,
+);
     await _apiService.endSession(_sessionId!);
     if (mounted) Navigator.pop(context);
   }

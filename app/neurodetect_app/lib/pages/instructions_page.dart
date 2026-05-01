@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/user_model.dart';
-import 'reaction_game_page.dart';
-import 'assessment_flow_page.dart';
+import 'ble_setup_page.dart';
 
 class InstructionsPage extends StatelessWidget {
   final UserModel user;
@@ -12,7 +11,7 @@ class InstructionsPage extends StatelessWidget {
   Navigator.push(
     context,
     MaterialPageRoute(
-      builder: (_) => AssessmentFlowPage(user: user),
+      builder: (_) => BleSetupPage(user: user),
     ),
   );
 }
