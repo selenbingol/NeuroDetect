@@ -4,11 +4,17 @@ import 'package:flutter/material.dart';
 import '../models/user_model.dart';
 import '../models/test_result.dart';
 import '../services/api_service.dart';
+import '../services/ble_service.dart';
 
 class DecisionGamePage extends StatefulWidget {
   final UserModel user;
+  final BleService? bleService;
 
-  const DecisionGamePage({super.key, required this.user});
+  const DecisionGamePage({
+    super.key,
+    required this.user,
+    this.bleService,
+  });
 
   @override
   State<DecisionGamePage> createState() => _DecisionGamePageState();

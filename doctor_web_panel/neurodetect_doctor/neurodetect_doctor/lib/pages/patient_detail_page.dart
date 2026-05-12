@@ -584,7 +584,7 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
                 final s = sessions[i];
 
                 return DataRow(
-                  color: MaterialStateProperty.resolveWith<Color?>(
+                  color: WidgetStateProperty.resolveWith<Color?>(
                     (states) =>
                         i.isEven ? Colors.white : const Color(0xFFF9FAFB),
                   ),

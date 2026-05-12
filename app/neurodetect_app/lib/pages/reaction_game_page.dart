@@ -4,11 +4,17 @@ import 'package:flutter/material.dart';
 import '../models/user_model.dart';
 import '../models/test_result.dart';
 import '../services/api_service.dart';
+import '../services/ble_service.dart';
 
 class ReactionGamePage extends StatefulWidget {
   final UserModel user;
+  final BleService? bleService;
 
-  const ReactionGamePage({super.key, required this.user});
+  const ReactionGamePage({
+    super.key,
+    required this.user,
+    this.bleService,
+  });
 
   @override
   State<ReactionGamePage> createState() => _ReactionGamePageState();
@@ -48,10 +54,15 @@ class _ReactionGamePageState extends State<ReactionGamePage> {
   Timer? _targetDelayTimer;
   Timer? _targetTimeoutTimer;
 
+  StreamSubscription<SensorData>? _sensorSub;
+final List<SensorData> _sensorSamples = [];
+
+
   @override
   void initState() {
     super.initState();
     _startSession();
+    _startSensorRecording();
   }
 
   @override
@@ -59,9 +70,25 @@ class _ReactionGamePageState extends State<ReactionGamePage> {
     _countdownTimer?.cancel();
     _targetDelayTimer?.cancel();
     _targetTimeoutTimer?.cancel();
+    _sensorSub?.cancel();
     super.dispose();
   }
+  void _startSensorRecording() {
+    final bleService = widget.bleService;
 
+    if (bleService == null) {
+      debugPrint("BLE SENSOR: no service connected");
+      return;
+    }
+
+    _sensorSub = bleService.sensorDataStream.listen((data) {
+      _sensorSamples.add(data);
+
+      debugPrint(
+        "REACTION SENSOR SAMPLE => motion: ${data.motion}, gyro: ${data.gyro}",
+      );
+    });
+  }
   Future<void> _startSession() async {
     final sessionId = await _apiService.startSession(widget.user.userId, "reaction");
     if (!mounted) return;
@@ -194,11 +221,17 @@ class _ReactionGamePageState extends State<ReactionGamePage> {
 
     debugPrint("=== REACTION GAME KLİNİK METRİKLER ===");
     debugPrint("Tap Rate: ${tapRate.toStringAsFixed(1)}%");
+    debugPrint("Sensor sample count: ${_sensorSamples.length}");
     debugPrint("False Start Rate: ${falseStartRate.toStringAsFixed(1)}%");
+    debugPrint("Sensor sample count: ${_sensorSamples.length}");
     debugPrint("Wrong Tap Rate: ${wrongTapRate.toStringAsFixed(1)}%");
+    debugPrint("Sensor sample count: ${_sensorSamples.length}");
     debugPrint("Timeout Rate: ${timeoutRate.toStringAsFixed(1)}%");
+    debugPrint("Sensor sample count: ${_sensorSamples.length}");
     debugPrint("Avg RT (tap only): ${avgRT.toStringAsFixed(0)} ms");
+    debugPrint("Sensor sample count: ${_sensorSamples.length}");
     debugPrint("RT Std: ${rtStd.toStringAsFixed(1)} ms");
+    debugPrint("Sensor sample count: ${_sensorSamples.length}");
 
     final totalMisses = _wrongTapCount + _timeoutCount;
 

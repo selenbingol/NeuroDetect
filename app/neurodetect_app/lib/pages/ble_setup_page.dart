@@ -52,7 +52,7 @@ class _BleSetupPageState extends State<BleSetupPage> {
   void dispose() {
     _scanSub?.cancel();
     _connectionSub?.cancel();
-    _bleService.dispose();
+    //_bleService.dispose();
     super.dispose();
   }
 
@@ -82,7 +82,10 @@ class _BleSetupPageState extends State<BleSetupPage> {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (_) => AssessmentFlowPage(user: widget.user),
+        builder: (_) => AssessmentFlowPage(
+  user: widget.user,
+  bleService: _bleService,
+),
       ),
     );
   }

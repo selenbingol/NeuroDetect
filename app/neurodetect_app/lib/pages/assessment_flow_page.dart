@@ -3,11 +3,18 @@ import '../models/user_model.dart';
 import 'reaction_game_page.dart';
 import 'decision_game_page.dart';
 import 'completion_page.dart';
+import '../services/ble_service.dart';
+import 'target_movement_game_page.dart';
 
 class AssessmentFlowPage extends StatefulWidget {
   final UserModel user;
+  final BleService? bleService;
 
-  const AssessmentFlowPage({super.key, required this.user});
+  const AssessmentFlowPage({
+    super.key,
+    required this.user,
+    this.bleService,
+  });
 
   @override
   State<AssessmentFlowPage> createState() => _AssessmentFlowPageState();
@@ -22,15 +29,31 @@ class _AssessmentFlowPageState extends State<AssessmentFlowPage> {
       description:
           "First, you will complete a basic reaction task to measure response speed and accuracy.",
       buttonText: "Start Reaction Task",
-      pageBuilder: () => ReactionGamePage(user: widget.user),
+      pageBuilder: () => ReactionGamePage(
+  user: widget.user,
+  bleService: widget.bleService,
+),
     ),
     _AssessmentTask(
       title: "Decision Task",
       description:
           "Next, you will complete a decision task to measure attention and response control.",
       buttonText: "Start Decision Task",
-      pageBuilder: () => DecisionGamePage(user: widget.user),
+      pageBuilder: () => DecisionGamePage(
+  user: widget.user,
+  bleService: widget.bleService,
+),
     ),
+    _AssessmentTask(
+  title: "Target Movement Task",
+  description:
+      "Finally, you will complete a sensor-based movement task to measure motor control, movement stability, and target tracking.",
+  buttonText: "Start Target Movement Task",
+  pageBuilder: () => TargetMovementGamePage(
+    user: widget.user,
+    bleService: widget.bleService,
+  ),
+),
   ];
 
   Future<void> _openCurrentTask() async {
