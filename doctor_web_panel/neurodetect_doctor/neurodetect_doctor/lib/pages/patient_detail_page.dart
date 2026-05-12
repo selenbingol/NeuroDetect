@@ -23,6 +23,7 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
   final ApiService _apiService = ApiService();
   final GlobalKey _accuracyChartKey = GlobalKey();
   final GlobalKey _reactionChartKey = GlobalKey();
+  final GlobalKey _tremorChartKey = GlobalKey();
 
   bool _isLoading = true;
   String _errorMessage = "";
@@ -165,6 +166,14 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
     return null;
   }
 
+  SessionReportItem? get _latestTargetMovementSession {
+    final sessions = _report?.sessions ?? [];
+    for (final s in sessions) {
+      if (s.sessionType == "target_movement") return s;
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -181,11 +190,13 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
 
               final accuracyChartBytes = await _captureWidget(_accuracyChartKey);
               final reactionChartBytes = await _captureWidget(_reactionChartKey);
+              final tremorChartBytes = await _captureWidget(_tremorChartKey);
 
               await PdfService.generatePatientReport(
                 _report!,
                 accuracyChartBytes: accuracyChartBytes,
                 reactionChartBytes: reactionChartBytes,
+                tremorChartBytes: tremorChartBytes,
               );
             },
           ),
@@ -215,6 +226,8 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
                             const SizedBox(height: 20),
                             _buildReactionChart(),
                             const SizedBox(height: 20),
+                            _buildTremorChart(),
+                            const SizedBox(height: 20),
                             _buildSessionTable(),
                           ],
                         ),
@@ -241,7 +254,7 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                p.username,
+                p.fullName,
                 style: const TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
@@ -308,6 +321,9 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
         _summaryCard("Score", s.avgScore.toStringAsFixed(1)),
         _summaryCard("Reaction", "${s.avgReactionTime.toStringAsFixed(0)} ms"),
         _summaryCard("Misses", s.totalMissCount.toString()),
+        _summaryCard("Avg Motion", s.avgMotion.toStringAsFixed(2)),
+        _summaryCard("Avg Gyro", s.avgGyro.toStringAsFixed(2)),
+        _summaryCard("Avg Tremor", s.avgTremorIndex.toStringAsFixed(2)),
       ],
     );
   }
@@ -337,6 +353,7 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
   Widget _buildDetailedMetricsSection() {
     final reaction = _latestReactionSession;
     final decision = _latestDecisionSession;
+    final targetMovement = _latestTargetMovementSession;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -352,6 +369,7 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
           children: [
             _buildReactionMetricsCard(reaction),
             _buildDecisionMetricsCard(decision),
+            _buildTargetMovementMetricsCard(targetMovement),
           ],
         ),
       ],
@@ -446,6 +464,86 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
     );
   }
 
+  Widget _buildTargetMovementMetricsCard(SessionReportItem? session) {
+    return Container(
+      width: 380,
+      padding: const EdgeInsets.all(20),
+      decoration: _cardStyle(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              buildSessionTypeBadge("target_movement"),
+              const SizedBox(width: 10),
+              const Text(
+                "Latest Sensor-Based Motor Metrics",
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (session == null)
+            const Text("No target movement session found.")
+          else
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                _miniMetric("Motor Success", "${session.successfulCutCount ?? 0}"),
+                _miniMetric("Motor Miss", "${session.sliceMissCount ?? 0}"),
+                _miniMetric("Near-Miss Events", "${session.nearMissCount ?? 0}"),
+                _miniMetric(
+                  "Avg Motor Path",
+                  session.avgSliceLength == null
+                      ? "-"
+                      : session.avgSliceLength!.toStringAsFixed(1),
+                ),
+                _miniMetric(
+                  "Movement Coverage",
+                  session.avgCutCoverage == null
+                      ? "-"
+                      : session.avgCutCoverage!.toStringAsFixed(2),
+                ),
+                _miniMetric(
+                  "Avg Motion",
+                  session.avgMotion == null
+                      ? "-"
+                      : session.avgMotion!.toStringAsFixed(2),
+                ),
+                _miniMetric(
+                  "Avg Gyro",
+                  session.avgGyro == null
+                      ? "-"
+                      : session.avgGyro!.toStringAsFixed(2),
+                ),
+                _miniMetric(
+                  "Tremor Index",
+                  session.tremorIndex == null
+                      ? "-"
+                      : session.tremorIndex!.toStringAsFixed(2),
+                ),
+                _miniMetric(
+                  "Movement Variability",
+                  session.movementVariability == null
+                      ? "-"
+                      : session.movementVariability!.toStringAsFixed(3),
+                ),
+                _miniMetric(
+                  "Path Corrections",
+                  "${session.pathCorrectionCount ?? 0}",
+                ),
+                _miniMetric(
+                  "Sensor Samples",
+                  "${session.sampleCount ?? 0}",
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _miniMetric(String title, String value) {
     return Container(
       width: 150,
@@ -512,6 +610,26 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
     return RepaintBoundary(
       key: _reactionChartKey,
       child: _chart("Reaction Time Trend", spots, max + 200),
+    );
+  }
+
+  Widget _buildTremorChart() {
+    final sessions = _report!.sessions;
+    final spots = <FlSpot>[];
+
+    double max = 1.0;
+
+    for (int i = 0; i < sessions.length; i++) {
+      if (sessions[i].tremorIndex != null) {
+        final val = sessions[i].tremorIndex!;
+        spots.add(FlSpot(i.toDouble(), val));
+        if (val > max) max = val;
+      }
+    }
+
+    return RepaintBoundary(
+      key: _tremorChartKey,
+      child: _chart("Tremor Index Trend", spots, max + 0.2),
     );
   }
 
@@ -612,7 +730,11 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
                             "Wrong Taps: ${s.wrongTapCount ?? 0}\n"
                             "Timeouts: ${s.timeoutCount ?? 0}\n"
                             "False Alarms: ${s.falseAlarmCount ?? 0}\n"
-                            "Omissions: ${s.omissionCount ?? 0}",
+                            "Omissions: ${s.omissionCount ?? 0}\n"
+                            "Motor Success: ${s.successfulCutCount ?? 0}\n"
+                            "Motor Miss: ${s.sliceMissCount ?? 0}\n"
+                            "Near-Miss Events: ${s.nearMissCount ?? 0}\n"
+                            "Tremor Index: ${s.tremorIndex == null ? '-' : s.tremorIndex!.toStringAsFixed(2)}",
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [

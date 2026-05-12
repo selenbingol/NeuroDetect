@@ -518,19 +518,6 @@ class _TargetMovementGamePageState extends State<TargetMovementGamePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF4F7FB),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFFF4F7FB),
-        elevation: 0,
-        centerTitle: true,
-        automaticallyImplyLeading: false,
-        title: Text(
-          "Target Movement Task - ${widget.user.username}",
-          style: const TextStyle(
-            color: Color(0xFF1C2430),
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {

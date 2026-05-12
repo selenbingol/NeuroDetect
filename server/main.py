@@ -39,6 +39,11 @@ class EndSessionData(BaseModel):
     session_id: int
 
 
+class StartSessionRequest(BaseModel):
+    user_id: int
+    session_type: str
+
+
 class GameMetricsData(BaseModel):
     session_id: int
     score: int
@@ -52,9 +57,44 @@ class GameMetricsData(BaseModel):
     omission_count: int = 0
     miss_count: int = 0
 
-class StartSessionRequest(BaseModel):
-    user_id: int
-    session_type: str
+
+class SensorMetricsData(BaseModel):
+    session_id: int
+    avg_motion: float | None = None
+    avg_gyro: float | None = None
+    tremor_index: float | None = None
+    movement_variability: float | None = None
+    path_correction_count: int = 0
+    sample_count: int = 0
+
+
+class TargetMovementMetricsData(BaseModel):
+    session_id: int
+    slice_hit_count: int = 0
+    slice_miss_count: int = 0
+    successful_cut_count: int = 0
+    near_miss_count: int = 0
+    avg_slice_length: float | None = None
+    avg_cut_coverage: float | None = None
+
+class VisualMemoryMetricsData(BaseModel):
+    session_id: int
+
+    total_rounds: int = 8
+    grid_item_count: int = 9
+    changed_card_count: int = 3
+
+    correct_selection_count: int = 0
+    false_selection_count: int = 0
+    omission_count: int = 0
+    false_start_count: int = 0
+
+    total_targets: int = 0
+    total_misses: int = 0
+
+    avg_reaction_time_ms: float | None = None
+    accuracy_rate: float = 0
+    memory_score: int = 0
 
 @app.post("/register")
 async def register(data: RegisterData):
@@ -182,115 +222,6 @@ async def start_session(data: StartSessionRequest):
         if conn:
             conn.close()
 
-@app.get("/patients/{user_id}/report")
-async def get_patient_report(user_id: int):
-    conn = None
-    cur = None
-    try:
-        conn = psycopg2.connect(DB_URL)
-        cur = conn.cursor()
-
-        # Patient info
-        cur.execute("""
-            SELECT user_id, username, email
-            FROM public."user"
-            WHERE user_id = %s AND role = 'patient';
-        """, (user_id,))
-        patient = cur.fetchone()
-
-        if not patient:
-            raise HTTPException(status_code=404, detail="Patient not found")
-
-        # Summary stats
-        cur.execute("""
-            SELECT
-                COUNT(DISTINCT s.session_id) AS total_sessions,
-                COALESCE(AVG(gm.score), 0),
-                COALESCE(AVG(gm.accuracy_rate), 0),
-                COALESCE(AVG(gm.reaction_time_ms), 0),
-                COALESCE(SUM(
-                    COALESCE(gm.false_start_count, 0) +
-                    COALESCE(gm.wrong_tap_count, 0) +
-                    COALESCE(gm.timeout_count, 0) +
-                    COALESCE(gm.false_alarm_count, 0) +
-                    COALESCE(gm.omission_count, 0)
-                ), 0)
-            FROM public.session s
-            LEFT JOIN public.game_metrics gm ON s.session_id = gm.session_id
-            WHERE s.user_id = %s;
-        """, (user_id,))
-        summary = cur.fetchone()
-
-        # Session history
-        cur.execute("""
-            SELECT
-                s.session_id,
-                s.start_time,
-                s.end_time,
-                s.session_type,
-                gm.score,
-                gm.accuracy_rate,
-                gm.reaction_time_ms,
-                gm.tap_count,
-                gm.false_start_count,
-                gm.wrong_tap_count,
-                gm.timeout_count,
-                gm.false_alarm_count,
-                gm.omission_count
-            FROM public.session s
-            LEFT JOIN public.game_metrics gm ON s.session_id = gm.session_id
-            WHERE s.user_id = %s
-            ORDER BY s.start_time DESC;
-        """, (user_id,))
-        sessions = cur.fetchall()
-
-        result = {
-            "patient": {
-                "user_id": patient[0],
-                "username": patient[1],
-                "email": patient[2],
-            },
-            "summary": {
-                "total_sessions": summary[0],
-                "avg_score": float(summary[1]),
-                "avg_accuracy": float(summary[2]),
-                "avg_reaction_time": float(summary[3]),
-                "total_miss_count": int(summary[4]),
-            },
-            "sessions": [
-                {
-                    "session_id": row[0],
-                    "start_time": None if row[1] is None else str(row[1]),
-                    "end_time": None if row[2] is None else str(row[2]),
-                    "session_type": row[3],
-                    "score": row[4],
-                    "accuracy_rate": row[5],
-                    "reaction_time_ms": row[6],
-                    "tap_count": row[7],
-                    "false_start_count": row[8],
-                    "wrong_tap_count": row[9],
-                    "timeout_count": row[10],
-                    "false_alarm_count": row[11],
-                    "omission_count": row[12],
-                    "miss_count": (row[8] or 0) + (row[9] or 0) + (row[10] or 0) + (row[11] or 0) + (row[12] or 0),
-                }
-                for row in sessions
-            ]
-        }
-
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"❌ Patient report hatası: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-    finally:
-        if cur:
-            cur.close()
-        if conn:
-            conn.close()
 
 @app.post("/end-session")
 async def end_session(data: EndSessionData):
@@ -330,6 +261,261 @@ async def end_session(data: EndSessionData):
         if conn:
             conn.close()
 
+
+@app.post("/save-metrics")
+async def save_metrics(data: GameMetricsData):
+    conn = None
+    cur = None
+    try:
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+
+        miss_count_calc = (
+            data.false_start_count
+            + data.wrong_tap_count
+            + data.timeout_count
+            + data.false_alarm_count
+            + data.omission_count
+        )
+
+        query = """
+        INSERT INTO public.game_metrics
+        (session_id, score, reaction_time_ms, accuracy_rate,
+         tap_count, false_start_count, wrong_tap_count,
+         timeout_count, false_alarm_count, omission_count, miss_count)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING metric_id;
+        """
+        cur.execute(
+            query,
+            (
+                data.session_id,
+                data.score,
+                data.reaction_time_ms,
+                data.accuracy_rate,
+                data.tap_count,
+                data.false_start_count,
+                data.wrong_tap_count,
+                data.timeout_count,
+                data.false_alarm_count,
+                data.omission_count,
+                miss_count_calc,
+            ),
+        )
+
+        metric_id = cur.fetchone()[0]
+        conn.commit()
+
+        print(f"✅ Metric kaydedildi. metric_id={metric_id}, session_id={data.session_id}")
+        return {"status": "success", "metric_id": metric_id}
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        print(f"❌ Kayıt Hatası: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+
+
+@app.post("/save-sensor-metrics")
+async def save_sensor_metrics(data: SensorMetricsData):
+    conn = None
+    cur = None
+    try:
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+
+        query = """
+        INSERT INTO public.sensor_metrics
+        (session_id, avg_motion, avg_gyro, tremor_index,
+         movement_variability, path_correction_count, sample_count)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        RETURNING sensor_metric_id;
+        """
+        cur.execute(
+            query,
+            (
+                data.session_id,
+                data.avg_motion,
+                data.avg_gyro,
+                data.tremor_index,
+                data.movement_variability,
+                data.path_correction_count,
+                data.sample_count,
+            ),
+        )
+
+        sensor_metric_id = cur.fetchone()[0]
+        conn.commit()
+
+        print(
+            f"✅ Sensor metric kaydedildi. sensor_metric_id={sensor_metric_id}, session_id={data.session_id}"
+        )
+        return {"status": "success", "sensor_metric_id": sensor_metric_id}
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        print(f"❌ Sensor metric kayıt hatası: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+
+
+@app.post("/save-target-movement-metrics")
+async def save_target_movement_metrics(data: TargetMovementMetricsData):
+    conn = None
+    cur = None
+    try:
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+
+        query = """
+        INSERT INTO public.target_movement_metrics
+        (session_id, slice_hit_count, slice_miss_count, successful_cut_count,
+         near_miss_count, avg_slice_length, avg_cut_coverage)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        RETURNING target_metric_id;
+        """
+        cur.execute(
+            query,
+            (
+                data.session_id,
+                data.slice_hit_count,
+                data.slice_miss_count,
+                data.successful_cut_count,
+                data.near_miss_count,
+                data.avg_slice_length,
+                data.avg_cut_coverage,
+            ),
+        )
+
+        target_metric_id = cur.fetchone()[0]
+        conn.commit()
+
+        print(
+            f"✅ Target movement metric kaydedildi. target_metric_id={target_metric_id}, session_id={data.session_id}"
+        )
+        return {"status": "success", "target_metric_id": target_metric_id}
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        print(f"❌ Target movement metric kayıt hatası: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+
+@app.post("/save-visual-memory-metrics")
+async def save_visual_memory_metrics(data: VisualMemoryMetricsData):
+    conn = None
+    cur = None
+    try:
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+
+        total_targets_calc = (
+            data.total_targets
+            if data.total_targets > 0
+            else data.total_rounds * data.changed_card_count
+        )
+
+        total_misses_calc = (
+            data.total_misses
+            if data.total_misses > 0
+            else data.false_selection_count + data.omission_count
+        )
+
+        query = """
+        INSERT INTO public.visual_memory_metrics
+        (
+            session_id,
+            total_rounds,
+            grid_item_count,
+            changed_card_count,
+            correct_selection_count,
+            false_selection_count,
+            omission_count,
+            false_start_count,
+            total_targets,
+            total_misses,
+            avg_reaction_time_ms,
+            accuracy_rate,
+            memory_score
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (session_id)
+        DO UPDATE SET
+            total_rounds = EXCLUDED.total_rounds,
+            grid_item_count = EXCLUDED.grid_item_count,
+            changed_card_count = EXCLUDED.changed_card_count,
+            correct_selection_count = EXCLUDED.correct_selection_count,
+            false_selection_count = EXCLUDED.false_selection_count,
+            omission_count = EXCLUDED.omission_count,
+            false_start_count = EXCLUDED.false_start_count,
+            total_targets = EXCLUDED.total_targets,
+            total_misses = EXCLUDED.total_misses,
+            avg_reaction_time_ms = EXCLUDED.avg_reaction_time_ms,
+            accuracy_rate = EXCLUDED.accuracy_rate,
+            memory_score = EXCLUDED.memory_score,
+            completed_at = CURRENT_TIMESTAMP
+        RETURNING visual_memory_metric_id;
+        """
+
+        cur.execute(
+            query,
+            (
+                data.session_id,
+                data.total_rounds,
+                data.grid_item_count,
+                data.changed_card_count,
+                data.correct_selection_count,
+                data.false_selection_count,
+                data.omission_count,
+                data.false_start_count,
+                total_targets_calc,
+                total_misses_calc,
+                data.avg_reaction_time_ms,
+                data.accuracy_rate,
+                data.memory_score,
+            ),
+        )
+
+        visual_memory_metric_id = cur.fetchone()[0]
+        conn.commit()
+
+        print(
+            f"✅ Visual memory metric kaydedildi. "
+            f"visual_memory_metric_id={visual_memory_metric_id}, session_id={data.session_id}"
+        )
+
+        return {
+            "status": "success",
+            "visual_memory_metric_id": visual_memory_metric_id
+        }
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        print(f"❌ Visual memory metric kayıt hatası: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+            
 @app.get("/patients")
 async def get_patients():
     conn = None
@@ -381,54 +567,185 @@ async def get_patients():
             conn.close()
 
 
-
-@app.post("/save-metrics")
-async def save_metrics(data: GameMetricsData):
+@app.get("/patients/{user_id}/report")
+async def get_patient_report(user_id: int):
     conn = None
     cur = None
     try:
         conn = psycopg2.connect(DB_URL)
         cur = conn.cursor()
 
-        miss_count_calc = (data.false_start_count + data.wrong_tap_count + 
-                           data.timeout_count + data.false_alarm_count + 
-                           data.omission_count)
+        cur.execute("""
+            SELECT user_id, username, email
+            FROM public."user"
+            WHERE user_id = %s AND role = 'patient';
+        """, (user_id,))
+        patient = cur.fetchone()
 
-        query = """
-        INSERT INTO public.game_metrics
-        (session_id, score, reaction_time_ms, accuracy_rate, 
-         tap_count, false_start_count, wrong_tap_count, 
-         timeout_count, false_alarm_count, omission_count, miss_count)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        RETURNING metric_id;
-        """
-        cur.execute(
-            query,
-            (
-                data.session_id, 
-                data.score, 
-                data.reaction_time_ms, 
-                data.accuracy_rate,
-                data.tap_count, 
-                data.false_start_count, 
-                data.wrong_tap_count, 
-                data.timeout_count, 
-                data.false_alarm_count, 
-                data.omission_count,
-                miss_count_calc
-            ),
-        )
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
 
-        metric_id = cur.fetchone()[0]
-        conn.commit()
+        cur.execute("""
+            SELECT
+                COUNT(DISTINCT s.session_id) AS total_sessions,
+                COALESCE(AVG(gm.score), 0),
+                COALESCE(AVG(gm.accuracy_rate), 0),
+                COALESCE(AVG(gm.reaction_time_ms), 0),
+                COALESCE(SUM(
+                    COALESCE(gm.false_start_count, 0) +
+                    COALESCE(gm.wrong_tap_count, 0) +
+                    COALESCE(gm.timeout_count, 0) +
+                    COALESCE(gm.false_alarm_count, 0) +
+                    COALESCE(gm.omission_count, 0)
+                ), 0),
+                COALESCE(AVG(sm.avg_motion), 0),
+                COALESCE(AVG(sm.avg_gyro), 0),
+                COALESCE(AVG(sm.tremor_index), 0),
 
-        print(f"✅ Metric kaydedildi. metric_id={metric_id}, session_id={data.session_id}")
-        return {"status": "success", "metric_id": metric_id}
+                COALESCE(AVG(vm.accuracy_rate), 0),
+                COALESCE(AVG(vm.memory_score), 0),
+                COALESCE(AVG(vm.avg_reaction_time_ms), 0)
+            FROM public.session s
+            LEFT JOIN public.game_metrics gm ON s.session_id = gm.session_id
+            LEFT JOIN public.sensor_metrics sm ON s.session_id = sm.session_id
+            LEFT JOIN public.visual_memory_metrics vm ON s.session_id = vm.session_id
+            WHERE s.user_id = %s;
+        """, (user_id,))
+        summary = cur.fetchone()
 
+        cur.execute("""
+            SELECT
+                s.session_id,
+                s.start_time,
+                s.end_time,
+                s.session_type,
+
+                gm.score,
+                gm.accuracy_rate,
+                gm.reaction_time_ms,
+                gm.tap_count,
+                gm.false_start_count,
+                gm.wrong_tap_count,
+                gm.timeout_count,
+                gm.false_alarm_count,
+                gm.omission_count,
+
+                sm.avg_motion,
+                sm.avg_gyro,
+                sm.tremor_index,
+                sm.movement_variability,
+                sm.path_correction_count,
+                sm.sample_count,
+
+                tm.slice_hit_count,
+                tm.slice_miss_count,
+                tm.successful_cut_count,
+                tm.near_miss_count,
+                tm.avg_slice_length,
+                tm.avg_cut_coverage,
+
+                vm.total_rounds,
+                vm.grid_item_count,
+                vm.changed_card_count,
+                vm.correct_selection_count,
+                vm.false_selection_count,
+                vm.omission_count AS visual_omission_count,
+                vm.false_start_count AS visual_false_start_count,
+                vm.total_targets,
+                vm.total_misses,
+                vm.avg_reaction_time_ms AS visual_avg_reaction_time_ms,
+                vm.accuracy_rate AS visual_accuracy_rate,
+                vm.memory_score
+
+            FROM public.session s
+            LEFT JOIN public.game_metrics gm ON s.session_id = gm.session_id
+            LEFT JOIN public.sensor_metrics sm ON s.session_id = sm.session_id
+            LEFT JOIN public.target_movement_metrics tm ON s.session_id = tm.session_id
+            LEFT JOIN public.visual_memory_metrics vm ON s.session_id = vm.session_id
+            WHERE s.user_id = %s
+            ORDER BY s.start_time DESC;
+        """, (user_id,))
+        sessions = cur.fetchall()
+
+        result = {
+            "patient": {
+                "user_id": patient[0],
+                "username": patient[1],
+                "email": patient[2],
+            },
+                 "summary": {
+                "total_sessions": summary[0],
+                "avg_score": float(summary[1]),
+                "avg_accuracy": float(summary[2]),
+                "avg_reaction_time": float(summary[3]),
+                "total_miss_count": int(summary[4]),
+                "avg_motion": float(summary[5]),
+                "avg_gyro": float(summary[6]),
+                "avg_tremor_index": float(summary[7]),
+
+                "avg_visual_memory_accuracy": float(summary[8]),
+                "avg_memory_score": float(summary[9]),
+                "avg_visual_memory_reaction_time": float(summary[10]),
+            },
+            "sessions": [
+                {
+                    "session_id": row[0],
+                    "start_time": None if row[1] is None else str(row[1]),
+                    "end_time": None if row[2] is None else str(row[2]),
+                    "session_type": row[3],
+
+                    "score": row[4],
+                    "accuracy_rate": row[5],
+                    "reaction_time_ms": row[6],
+                    "tap_count": row[7],
+                    "false_start_count": row[8],
+                    "wrong_tap_count": row[9],
+                    "timeout_count": row[10],
+                    "false_alarm_count": row[11],
+                    "omission_count": row[12],
+                    "miss_count": (row[8] or 0) + (row[9] or 0) + (row[10] or 0) + (row[11] or 0) + (row[12] or 0),
+
+                    "avg_motion": row[13],
+                    "avg_gyro": row[14],
+                    "tremor_index": row[15],
+                    "movement_variability": row[16],
+                    "path_correction_count": row[17],
+                    "sample_count": row[18],
+
+                    "slice_hit_count": row[19],
+                    "slice_miss_count": row[20],
+                    "successful_cut_count": row[21],
+                    "near_miss_count": row[22],
+                    "avg_slice_length": row[23],
+                    "avg_cut_coverage": row[24],
+                    
+                    "visual_total_rounds": row[25],
+                    "visual_grid_item_count": row[26],
+                    "visual_changed_card_count": row[27],
+                    "visual_correct_selection_count": row[28],
+                    "visual_false_selection_count": row[29],
+                    "visual_omission_count": row[30],
+                    "visual_false_start_count": row[31],
+                    "visual_total_targets": row[32],
+                    "visual_total_misses": row[33],
+                    "visual_avg_reaction_time_ms": row[34],
+                    "visual_accuracy_rate": row[35],
+                    "visual_memory_score": row[36],
+                }
+                for row in sessions
+            ]
+        }
+
+        return result
+
+    except HTTPException:
+        raise
     except Exception as e:
-        if conn: conn.rollback()
-        print(f"❌ Kayıt Hatası: {str(e)}")
+        print(f"❌ Patient report hatası: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
     finally:
-        if cur: cur.close()
-        if conn: conn.close()
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()

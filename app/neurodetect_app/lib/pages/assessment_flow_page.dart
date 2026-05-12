@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import '../models/user_model.dart';
-import 'reaction_game_page.dart';
-import 'decision_game_page.dart';
-import 'completion_page.dart';
 import '../services/ble_service.dart';
+
+import 'combined_tap_game_page.dart';
 import 'target_movement_game_page.dart';
+import 'visual_memory_game_page.dart';
+import 'completion_page.dart';
 
 class AssessmentFlowPage extends StatefulWidget {
   final UserModel user;
@@ -25,35 +26,34 @@ class _AssessmentFlowPageState extends State<AssessmentFlowPage> {
 
   late final List<_AssessmentTask> _tasks = [
     _AssessmentTask(
-      title: "Reaction Task",
+      title: "Combined Tap Task",
       description:
-          "First, you will complete a basic reaction task to measure response speed and accuracy.",
-      buttonText: "Start Reaction Task",
-      pageBuilder: () => ReactionGamePage(
-  user: widget.user,
-  bleService: widget.bleService,
-),
+          "First, you will complete a combined task containing a reaction block and a decision block. This task measures response speed, attention, and response control.",
+      buttonText: "Start Combined Tap Task",
+      pageBuilder: () => CombinedTapGamePage(
+        user: widget.user,
+        bleService: widget.bleService,
+      ),
     ),
     _AssessmentTask(
-      title: "Decision Task",
+      title: "Target Movement Task",
       description:
-          "Next, you will complete a decision task to measure attention and response control.",
-      buttonText: "Start Decision Task",
-      pageBuilder: () => DecisionGamePage(
-  user: widget.user,
-  bleService: widget.bleService,
-),
+          "Next, you will complete a sensor-supported movement task. This task measures motor control, movement stability, target tracking, and tremor-related movement patterns.",
+      buttonText: "Start Target Movement Task",
+      pageBuilder: () => TargetMovementGamePage(
+        user: widget.user,
+        bleService: widget.bleService,
+      ),
     ),
     _AssessmentTask(
-  title: "Target Movement Task",
-  description:
-      "Finally, you will complete a sensor-based movement task to measure motor control, movement stability, and target tracking.",
-  buttonText: "Start Target Movement Task",
-  pageBuilder: () => TargetMovementGamePage(
-    user: widget.user,
-    bleService: widget.bleService,
-  ),
-),
+      title: "Visual Memory Task",
+      description:
+          "Finally, you will complete a visual memory task. Some cards will briefly change color, and you will be asked to select the cards that changed. This task measures short-term visual memory and attention.",
+      buttonText: "Start Visual Memory Task",
+      pageBuilder: () => VisualMemoryGamePage(
+        user: widget.user,
+      ),
+    ),
   ];
 
   Future<void> _openCurrentTask() async {
@@ -151,7 +151,7 @@ class _AssessmentFlowPageState extends State<AssessmentFlowPage> {
           ),
           const SizedBox(height: 10),
           const Text(
-            "The assessment tasks are presented in a fixed sequence from simpler to more demanding activities.",
+            "The assessment tasks are presented in a fixed sequence from cognitive-motor response tasks to visual memory assessment.",
             style: TextStyle(
               color: Colors.white,
               fontSize: 15,

@@ -71,6 +71,11 @@ class PatientSummary {
   final double avgAccuracy;
   final double avgReactionTime;
   final int totalMissCount;
+
+  final double avgMotion;
+  final double avgGyro;
+  final double avgTremorIndex;
+
   final double? latestRiskScore;
   final String? latestRiskLevel;
   final String? latestRiskAlert;
@@ -82,6 +87,9 @@ class PatientSummary {
     required this.avgAccuracy,
     required this.avgReactionTime,
     required this.totalMissCount,
+    required this.avgMotion,
+    required this.avgGyro,
+    required this.avgTremorIndex,
     required this.latestRiskScore,
     required this.latestRiskLevel,
     required this.latestRiskAlert,
@@ -95,6 +103,9 @@ class PatientSummary {
       avgAccuracy: (json['avg_accuracy'] as num?)?.toDouble() ?? 0.0,
       avgReactionTime: (json['avg_reaction_time'] as num?)?.toDouble() ?? 0.0,
       totalMissCount: json['total_miss_count'] ?? 0,
+      avgMotion: (json['avg_motion'] as num?)?.toDouble() ?? 0.0,
+      avgGyro: (json['avg_gyro'] as num?)?.toDouble() ?? 0.0,
+      avgTremorIndex: (json['avg_tremor_index'] as num?)?.toDouble() ?? 0.0,
       latestRiskScore: (json['latest_risk_score'] as num?)?.toDouble(),
       latestRiskLevel: json['latest_risk_level'],
       latestRiskAlert: json['latest_risk_alert'],
@@ -108,16 +119,33 @@ class SessionReportItem {
   final String? startTime;
   final String? endTime;
   final String? sessionType;
+
   final int? score;
   final double? accuracyRate;
   final int? reactionTimeMs;
   final int? missCount;
+
   final int? tapCount;
   final int? falseStartCount;
   final int? wrongTapCount;
   final int? timeoutCount;
   final int? falseAlarmCount;
   final int? omissionCount;
+
+  final double? avgMotion;
+  final double? avgGyro;
+  final double? tremorIndex;
+  final double? movementVariability;
+  final int? pathCorrectionCount;
+  final int? sampleCount;
+
+  final int? sliceHitCount;
+  final int? sliceMissCount;
+  final int? successfulCutCount;
+  final int? nearMissCount;
+  final double? avgSliceLength;
+  final double? avgCutCoverage;
+
   final double? riskScore;
   final String? riskLevel;
   final String? riskAlert;
@@ -138,6 +166,18 @@ class SessionReportItem {
     required this.timeoutCount,
     required this.falseAlarmCount,
     required this.omissionCount,
+    required this.avgMotion,
+    required this.avgGyro,
+    required this.tremorIndex,
+    required this.movementVariability,
+    required this.pathCorrectionCount,
+    required this.sampleCount,
+    required this.sliceHitCount,
+    required this.sliceMissCount,
+    required this.successfulCutCount,
+    required this.nearMissCount,
+    required this.avgSliceLength,
+    required this.avgCutCoverage,
     required this.riskScore,
     required this.riskLevel,
     required this.riskAlert,
@@ -160,6 +200,18 @@ class SessionReportItem {
       timeoutCount: json['timeout_count'],
       falseAlarmCount: json['false_alarm_count'],
       omissionCount: json['omission_count'],
+      avgMotion: (json['avg_motion'] as num?)?.toDouble(),
+      avgGyro: (json['avg_gyro'] as num?)?.toDouble(),
+      tremorIndex: (json['tremor_index'] as num?)?.toDouble(),
+      movementVariability: (json['movement_variability'] as num?)?.toDouble(),
+      pathCorrectionCount: json['path_correction_count'],
+      sampleCount: json['sample_count'],
+      sliceHitCount: json['slice_hit_count'],
+      sliceMissCount: json['slice_miss_count'],
+      successfulCutCount: json['successful_cut_count'],
+      nearMissCount: json['near_miss_count'],
+      avgSliceLength: (json['avg_slice_length'] as num?)?.toDouble(),
+      avgCutCoverage: (json['avg_cut_coverage'] as num?)?.toDouble(),
       riskScore: (json['risk_score'] as num?)?.toDouble(),
       riskLevel: json['risk_level'],
       riskAlert: json['risk_alert'],

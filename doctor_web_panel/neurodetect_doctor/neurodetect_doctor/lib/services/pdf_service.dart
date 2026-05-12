@@ -9,6 +9,7 @@ class PdfService {
     PatientReportModel report, {
     Uint8List? accuracyChartBytes,
     Uint8List? reactionChartBytes,
+    Uint8List? tremorChartBytes,
   }) async {
     final pdf = pw.Document();
 
@@ -20,6 +21,8 @@ class PdfService {
         accuracyChartBytes != null ? pw.MemoryImage(accuracyChartBytes) : null;
     final reactionImage =
         reactionChartBytes != null ? pw.MemoryImage(reactionChartBytes) : null;
+    final tremorImage =
+        tremorChartBytes != null ? pw.MemoryImage(tremorChartBytes) : null;
 
     pdf.addPage(
       pw.MultiPage(
@@ -38,15 +41,19 @@ class PdfService {
           pw.SizedBox(height: 14),
           _buildClinicalInterpretation(summary),
           pw.SizedBox(height: 14),
-          if (accuracyImage != null || reactionImage != null) ...[
-  pw.NewPage(),
-  _buildChartsBlock(
-    accuracyImage: accuracyImage,
-    reactionImage: reactionImage,
-  ),
-],
+          _buildTaskSpecificPdfMetrics(sessions),
+          pw.SizedBox(height: 14),
+          if (accuracyImage != null || reactionImage != null || tremorImage != null) ...[
+            pw.NewPage(),
+            _buildChartsBlock(
+              accuracyImage: accuracyImage,
+              reactionImage: reactionImage,
+              tremorImage: tremorImage,
+            ),
+          ],
           pw.NewPage(),
           _buildSessionTable(sessions),
+          pw.SizedBox(height: 16),
           _buildFooter(),
         ],
       ),
@@ -174,6 +181,9 @@ class PdfService {
           "${summary.avgReactionTime.toStringAsFixed(0)} ms",
         ),
         _summaryCard("Total Misses", summary.totalMissCount.toString()),
+        _summaryCard("Avg Motion", summary.avgMotion.toStringAsFixed(2)),
+        _summaryCard("Avg Gyro", summary.avgGyro.toStringAsFixed(2)),
+        _summaryCard("Avg Tremor", summary.avgTremorIndex.toStringAsFixed(2)),
         _summaryCard(
           "Latest Assessment",
           summary.latestAssessmentTime == null
@@ -321,6 +331,22 @@ class PdfService {
       );
     }
 
+    if (summary.avgTremorIndex > 0.30) {
+      notes.add(
+        "Average tremor index is elevated and may indicate reduced movement stability during sensor-based tasks.",
+      );
+    } else if (summary.avgTremorIndex > 0.15) {
+      notes.add(
+        "Average tremor index is mildly elevated and should be reviewed alongside target-movement performance.",
+      );
+    }
+
+    if (summary.avgMotion > 1.20) {
+      notes.add(
+        "Average motion level is relatively high and may reflect increased corrective movement or unstable motor control.",
+      );
+    }
+
     if ((summary.latestRiskLevel ?? "").toLowerCase() == "high") {
       notes.add(
         "Most recent AI assessment indicates high risk and merits prompt clinician review.",
@@ -352,97 +378,287 @@ class PdfService {
     );
   }
 
+  static SessionReportItem? _latestSessionByType(
+    List<SessionReportItem> sessions,
+    String type,
+  ) {
+    for (final s in sessions) {
+      if (s.sessionType == type) return s;
+    }
+    return null;
+  }
+
+  static pw.Widget _buildTaskSpecificPdfMetrics(List<SessionReportItem> sessions) {
+    final reaction = _latestSessionByType(sessions, "reaction");
+    final decision = _latestSessionByType(sessions, "decision");
+    final target = _latestSessionByType(sessions, "target_movement");
+
+    return pw.Container(
+      decoration: _cardDecoration(),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          _buildBandTitle("Task-Specific Metrics"),
+          pw.Padding(
+            padding: const pw.EdgeInsets.all(14),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                _buildTaskMetricBlock(
+                  "Latest Reaction Metrics",
+                  [
+                    _pdfMetricLine("Tap Count", "${reaction?.tapCount ?? 0}"),
+                    _pdfMetricLine("False Start", "${reaction?.falseStartCount ?? 0}"),
+                    _pdfMetricLine("Wrong Tap", "${reaction?.wrongTapCount ?? 0}"),
+                    _pdfMetricLine("Timeout", "${reaction?.timeoutCount ?? 0}"),
+                    _pdfMetricLine("Miss Count", "${reaction?.missCount ?? 0}"),
+                    _pdfMetricLine(
+                      "Reaction",
+                      reaction?.reactionTimeMs == null
+                          ? "-"
+                          : "${reaction!.reactionTimeMs} ms",
+                    ),
+                  ],
+                ),
+                pw.SizedBox(height: 10),
+                _buildTaskMetricBlock(
+                  "Latest Decision Metrics",
+                  [
+                    _pdfMetricLine("Correct Decisions", "${decision?.tapCount ?? 0}"),
+                    _pdfMetricLine("False Start", "${decision?.falseStartCount ?? 0}"),
+                    _pdfMetricLine("False Alarm", "${decision?.falseAlarmCount ?? 0}"),
+                    _pdfMetricLine("Omission", "${decision?.omissionCount ?? 0}"),
+                    _pdfMetricLine("Miss Count", "${decision?.missCount ?? 0}"),
+                    _pdfMetricLine(
+                      "Reaction",
+                      decision?.reactionTimeMs == null
+                          ? "-"
+                          : "${decision!.reactionTimeMs} ms",
+                    ),
+                  ],
+                ),
+                pw.SizedBox(height: 10),
+                _buildTaskMetricBlock(
+                  "Latest Sensor-Based Motor Metrics",
+                  [
+                    _pdfMetricLine("Motor Success", "${target?.successfulCutCount ?? 0}"),
+                    _pdfMetricLine("Motor Miss", "${target?.sliceMissCount ?? 0}"),
+                    _pdfMetricLine("Near-Miss Events", "${target?.nearMissCount ?? 0}"),
+                    _pdfMetricLine(
+                      "Avg Motor Path",
+                      target?.avgSliceLength == null
+                          ? "-"
+                          : target!.avgSliceLength!.toStringAsFixed(1),
+                    ),
+                    _pdfMetricLine(
+                      "Movement Coverage",
+                      target?.avgCutCoverage == null
+                          ? "-"
+                          : target!.avgCutCoverage!.toStringAsFixed(2),
+                    ),
+                    _pdfMetricLine(
+                      "Avg Motion",
+                      target?.avgMotion == null
+                          ? "-"
+                          : target!.avgMotion!.toStringAsFixed(2),
+                    ),
+                    _pdfMetricLine(
+                      "Avg Gyro",
+                      target?.avgGyro == null
+                          ? "-"
+                          : target!.avgGyro!.toStringAsFixed(2),
+                    ),
+                    _pdfMetricLine(
+                      "Tremor Index",
+                      target?.tremorIndex == null
+                          ? "-"
+                          : target!.tremorIndex!.toStringAsFixed(2),
+                    ),
+                    _pdfMetricLine(
+                      "Movement Variability",
+                      target?.movementVariability == null
+                          ? "-"
+                          : target!.movementVariability!.toStringAsFixed(3),
+                    ),
+                    _pdfMetricLine(
+                      "Path Corrections",
+                      "${target?.pathCorrectionCount ?? 0}",
+                    ),
+                    _pdfMetricLine(
+                      "Samples",
+                      "${target?.sampleCount ?? 0}",
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static pw.Widget _buildTaskMetricBlock(
+    String title,
+    List<pw.Widget> children,
+  ) {
+    return pw.Container(
+      width: double.infinity,
+      padding: const pw.EdgeInsets.all(10),
+      decoration: pw.BoxDecoration(
+        color: PdfColor.fromHex('#F8FAFC'),
+        borderRadius: pw.BorderRadius.circular(6),
+        border: pw.Border.all(color: PdfColors.grey300),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text(
+            title,
+            style: pw.TextStyle(
+              fontSize: 11,
+              fontWeight: pw.FontWeight.bold,
+            ),
+          ),
+          pw.SizedBox(height: 8),
+          ...children,
+        ],
+      ),
+    );
+  }
+
+  static pw.Widget _pdfMetricLine(String label, String value) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.only(bottom: 4),
+      child: pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        children: [
+          pw.Text(
+            label,
+            style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
+          ),
+          pw.Text(
+            value,
+            style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold),
+          ),
+        ],
+      ),
+    );
+  }
+
   static pw.Widget _buildChartsBlock({
-  pw.MemoryImage? accuracyImage,
-  pw.MemoryImage? reactionImage,
-}) {
-  return pw.Column(
-    crossAxisAlignment: pw.CrossAxisAlignment.start,
-    children: [
-      _buildSectionTitle("Performance Trend Charts"),
-      pw.SizedBox(height: 8),
-
-      if (accuracyImage != null) ...[
-        pw.Text(
-          "Accuracy Trend",
-          style: pw.TextStyle(
-            fontWeight: pw.FontWeight.bold,
-            fontSize: 13,
-          ),
-        ),
+    pw.MemoryImage? accuracyImage,
+    pw.MemoryImage? reactionImage,
+    pw.MemoryImage? tremorImage,
+  }) {
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        _buildSectionTitle("Performance Trend Charts"),
         pw.SizedBox(height: 8),
-        pw.Image(accuracyImage, height: 180),
-        pw.SizedBox(height: 12),
+        if (accuracyImage != null) ...[
+          pw.Text(
+            "Accuracy Trend",
+            style: pw.TextStyle(
+              fontWeight: pw.FontWeight.bold,
+              fontSize: 13,
+            ),
+          ),
+          pw.SizedBox(height: 8),
+          pw.Image(accuracyImage, height: 180),
+          pw.SizedBox(height: 12),
+        ],
+        if (reactionImage != null) ...[
+          pw.Text(
+            "Reaction Time Trend",
+            style: pw.TextStyle(
+              fontWeight: pw.FontWeight.bold,
+              fontSize: 13,
+            ),
+          ),
+          pw.SizedBox(height: 8),
+          pw.Image(reactionImage, height: 180),
+          pw.SizedBox(height: 12),
+        ],
+        if (tremorImage != null) ...[
+          pw.Text(
+            "Tremor Index Trend",
+            style: pw.TextStyle(
+              fontWeight: pw.FontWeight.bold,
+              fontSize: 13,
+            ),
+          ),
+          pw.SizedBox(height: 8),
+          pw.Image(tremorImage, height: 180),
+        ],
       ],
+    );
+  }
 
-      if (reactionImage != null) ...[
-        pw.Text(
-          "Reaction Time Trend",
-          style: pw.TextStyle(
-            fontWeight: pw.FontWeight.bold,
-            fontSize: 13,
-          ),
-        ),
-        pw.SizedBox(height: 8),
-        pw.Image(reactionImage, height: 180),
-      ],
-    ],
-  );
-}
+  static String _sessionTypeLabel(String? sessionType) {
+    switch (sessionType) {
+      case "reaction":
+        return "Reaction";
+      case "decision":
+        return "Decision";
+      case "target_movement":
+        return "Target Movement";
+      default:
+        return "-";
+    }
+  }
 
- static pw.Widget _buildSessionTable(List<SessionReportItem> sessions) {
-  return pw.Column(
-    crossAxisAlignment: pw.CrossAxisAlignment.start,
-    children: [
-
-      _buildBandTitle("Session History"),
-
-      pw.Padding(
-        padding: const pw.EdgeInsets.all(12),
-        child: pw.TableHelper.fromTextArray(
-          headers: const [
-            "Date",
-            "Score",
-            "Accuracy",
-            "Reaction",
-            "Miss",
-            "Risk Level",
-          ],
-          data: sessions.map((s) {
-            return [
-              _formatPdfDate(s.startTime),
-              s.score?.toString() ?? "-",
-              s.accuracyRate == null
-                  ? "-"
-                  : "${s.accuracyRate!.toStringAsFixed(1)}%",
-              s.reactionTimeMs == null ? "-" : "${s.reactionTimeMs} ms",
-              s.missCount?.toString() ?? "-",
-              s.riskLevel ?? "-",
-            ];
-          }).toList(),
-          headerStyle: pw.TextStyle(
-            fontWeight: pw.FontWeight.bold,
-            color: PdfColors.white,
-            fontSize: 10,
-          ),
-          headerDecoration: pw.BoxDecoration(
-            color: PdfColor.fromHex('#243B6B'),
-          ),
-          cellStyle: const pw.TextStyle(fontSize: 9),
-          cellPadding: const pw.EdgeInsets.all(6),
-          rowDecoration: const pw.BoxDecoration(
-            border: pw.Border(
-              bottom: pw.BorderSide(
-                color: PdfColors.grey300,
-                width: 0.4,
+  static pw.Widget _buildSessionTable(List<SessionReportItem> sessions) {
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        _buildBandTitle("Session History"),
+        pw.Padding(
+          padding: const pw.EdgeInsets.all(12),
+          child: pw.TableHelper.fromTextArray(
+            headers: const [
+              "Date",
+              "Type",
+              "Score",
+              "Accuracy",
+              "Reaction",
+              "Miss",
+            ],
+            data: sessions.map((s) {
+              return [
+                _formatPdfDate(s.startTime),
+                _sessionTypeLabel(s.sessionType),
+                s.score?.toString() ?? "-",
+                s.accuracyRate == null
+                    ? "-"
+                    : "${s.accuracyRate!.toStringAsFixed(1)}%",
+                s.reactionTimeMs == null ? "-" : "${s.reactionTimeMs} ms",
+                s.missCount?.toString() ?? "-",
+              ];
+            }).toList(),
+            headerStyle: pw.TextStyle(
+              fontWeight: pw.FontWeight.bold,
+              color: PdfColors.white,
+              fontSize: 10,
+            ),
+            headerDecoration: pw.BoxDecoration(
+              color: PdfColor.fromHex('#243B6B'),
+            ),
+            cellStyle: const pw.TextStyle(fontSize: 9),
+            cellPadding: const pw.EdgeInsets.all(6),
+            rowDecoration: const pw.BoxDecoration(
+              border: pw.Border(
+                bottom: pw.BorderSide(
+                  color: PdfColors.grey300,
+                  width: 0.4,
+                ),
               ),
             ),
           ),
         ),
-      ),
-    ],
-  );
-}
+      ],
+    );
+  }
 
   static pw.Widget _buildFooter() {
     return pw.Row(
