@@ -530,6 +530,8 @@ async def get_patients():
             p.first_name,
             p.last_name,
             p.dob,
+            p.phone,
+            p.gender,
             COALESCE(
                 ARRAY_AGG(s.start_time ORDER BY s.start_time DESC)
                 FILTER (WHERE s.start_time IS NOT NULL),
@@ -539,9 +541,16 @@ async def get_patients():
         LEFT JOIN public.patients p ON u.user_id = p.user_id
         LEFT JOIN public.session s ON u.user_id = s.user_id
         WHERE u.role = 'patient'
-        GROUP BY u.user_id, p.first_name, p.last_name, p.dob
+        GROUP BY
+            u.user_id,
+            p.first_name,
+            p.last_name,
+            p.dob,
+            p.phone,
+            p.gender
         ORDER BY p.first_name ASC, p.last_name ASC;
         """
+
         cur.execute(query)
         rows = cur.fetchall()
 
@@ -551,7 +560,9 @@ async def get_patients():
                 "first_name": row[1] if row[1] else "",
                 "last_name": row[2] if row[2] else "",
                 "dob": None if row[3] is None else str(row[3]),
-                "session_dates": [str(dt) for dt in row[4]] if row[4] else []
+                "phone": row[4] if row[4] else "",
+                "gender": row[5] if row[5] else "",
+                "session_dates": [str(dt) for dt in row[6]] if row[6] else []
             }
             for row in rows
         ]

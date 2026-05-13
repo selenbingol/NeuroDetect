@@ -39,6 +39,8 @@ class _VisualMemoryGamePageState extends State<VisualMemoryGamePage> {
   static const Color _changedRed = Color(0xFFEF4444);
   static const Color _selectedBorder = Color(0xFF111827);
 
+  static const String _cardsBackgroundAsset = 'assets/backgrounds/cards.png';
+
   int? _sessionId;
 
   bool _isLoadingSession = true;
@@ -267,14 +269,16 @@ class _VisualMemoryGamePageState extends State<VisualMemoryGamePage> {
 
     final totalMisses = _falseSelectionCount + _omissionCount;
 
+    final memoryScore = (_correctSelectionCount * 10) -
+        (_falseSelectionCount * 4) -
+        (_omissionCount * 5) -
+        (_falseStartCount * 3);
+
     final result = TestResult(
       reactionTime: avgReactionTime.round(),
       isSuccess: true,
       accuracy: accuracy,
-      score: (_correctSelectionCount * 10) -
-          (_falseSelectionCount * 4) -
-          (_omissionCount * 5) -
-          (_falseStartCount * 3),
+      score: memoryScore,
       timestamp: DateTime.now(),
       tapCount: _correctSelectionCount,
       missCount: totalMisses,
@@ -297,6 +301,22 @@ class _VisualMemoryGamePageState extends State<VisualMemoryGamePage> {
       timeoutCount: result.timeoutCount,
       falseAlarmCount: result.falseAlarmCount,
       omissionCount: result.omissionCount,
+    );
+
+    await _apiService.saveVisualMemoryMetrics(
+      sessionId: _sessionId!,
+      totalRounds: _maxRounds,
+      gridItemCount: _gridItemCount,
+      changedCardCount: _changedCardCount,
+      correctSelectionCount: _correctSelectionCount,
+      falseSelectionCount: _falseSelectionCount,
+      omissionCount: _omissionCount,
+      falseStartCount: _falseStartCount,
+      totalTargets: totalTargets,
+      totalMisses: totalMisses,
+      avgReactionTimeMs: avgReactionTime,
+      accuracyRate: accuracy,
+      memoryScore: memoryScore,
     );
 
     await _apiService.endSession(_sessionId!);
@@ -322,12 +342,25 @@ class _VisualMemoryGamePageState extends State<VisualMemoryGamePage> {
     return const Color(0xFF1C2430);
   }
 
-  FontWeight _feedbackWeight() {
-    if (_feedbackMessage.isNotEmpty) {
-      return FontWeight.w800;
+  IconData _feedbackIcon() {
+    if (_feedbackMessage == "Correct" ||
+        _feedbackMessage == "Partially correct") {
+      return Icons.check_circle_rounded;
     }
 
-    return FontWeight.w500;
+    if (_feedbackMessage == "Too early" || _feedbackMessage == "Incorrect") {
+      return Icons.error_rounded;
+    }
+
+    return Icons.info_rounded;
+  }
+
+  FontWeight _feedbackWeight() {
+    if (_feedbackMessage.isNotEmpty) {
+      return FontWeight.w900;
+    }
+
+    return FontWeight.w600;
   }
 
   Border _tileBorder(int index) {
@@ -376,6 +409,14 @@ class _VisualMemoryGamePageState extends State<VisualMemoryGamePage> {
     }
 
     return "Wait for the next round";
+  }
+
+  String _phaseText() {
+    if (_isInitialBluePhase) return "Preparation";
+    if (_isChangedRedPhase) return "Encoding";
+    if (_isAnswerPhase) return "Recall";
+    if (_feedbackMessage.isNotEmpty) return "Feedback";
+    return "Ready";
   }
 
   Widget _buildMemoryCard(int index) {
@@ -429,99 +470,545 @@ class _VisualMemoryGamePageState extends State<VisualMemoryGamePage> {
 
   @override
   Widget build(BuildContext context) {
+    final progressValue = _currentRound == 0 ? 0.0 : _currentRound / _maxRounds;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF4F7FB),
       body: SafeArea(
         child: _isLoadingSession
-            ? const Center(child: CircularProgressIndicator())
-            : Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                child: Container(
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFFFDFEFF), Color(0xFFF3F7FB)],
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                    ),
-                    borderRadius: BorderRadius.circular(28),
-                    border: Border.all(color: const Color(0xFFE5E7EB)),
-                  ),
-                  child: Stack(
-                    children: [
-                      Column(
-                        children: [
-                          const SizedBox(height: 24),
-                          Text(
-                            "Round $_currentRound / $_maxRounds",
-                            style: const TextStyle(
-                              fontSize: 18,
-                              color: Color(0xFF1C2430),
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            _instructionText(),
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize:
-                                  _feedbackMessage.isNotEmpty ? 28 : 18,
-                              fontWeight: _feedbackWeight(),
-                              color: _feedbackColor(),
-                            ),
-                          ),
-                          const SizedBox(height: 30),
-                          Expanded(
-                            child: Center(
-                              child: ConstrainedBox(
-                                constraints: const BoxConstraints(
-                                  maxWidth: 500,
-                                  maxHeight: 410,
-                                ),
-                                child: GridView.builder(
-                                  shrinkWrap: true,
-                                  physics:
-                                      const NeverScrollableScrollPhysics(),
-                                  itemCount: _gridItemCount,
-                                  gridDelegate:
-                                      const SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: 3,
-                                    crossAxisSpacing: 14,
-                                    mainAxisSpacing: 14,
-                                    childAspectRatio: 1.25,
-                                  ),
-                                  itemBuilder: (context, index) {
-                                    return RepaintBoundary(
-                                      child: _buildMemoryCard(index),
-                                    );
-                                  },
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 24),
-                        ],
-                      ),
-                      if (_isCountdownActive)
-                        Container(
-                          color: const Color(0xCCF4F7FB),
-                          child: Center(
-                            child: Text(
-                              "$_countdown",
-                              style: const TextStyle(
-                                fontSize: 100,
-                                fontWeight: FontWeight.w900,
-                                color: Color(0xFF1E6BA8),
-                              ),
-                            ),
-                          ),
+            ? _buildLoadingView()
+            : Stack(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                    child: Column(
+                      children: [
+                        _buildHeaderPanel(progressValue),
+                        const SizedBox(height: 10),
+                        Expanded(
+                          child: _buildPlayArea(),
                         ),
-                    ],
+                      ],
+                    ),
+                  ),
+                  if (_isCountdownActive) _buildCountdownOverlay(),
+                ],
+              ),
+      ),
+    );
+  }
+
+  Widget _buildLoadingView() {
+    return Center(
+      child: Container(
+        width: 290,
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(26),
+          border: Border.all(color: const Color(0xFFE5E7EB)),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x12000000),
+              blurRadius: 24,
+              offset: Offset(0, 10),
+            ),
+          ],
+        ),
+        child: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(
+              color: Color(0xFF1E6BA8),
+            ),
+            SizedBox(height: 18),
+            Text(
+              "Preparing memory task...",
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Color(0xFF1C2430),
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            SizedBox(height: 6),
+            Text(
+              "Please wait while the visual memory session is initialized.",
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Color(0xFF64748B),
+                fontSize: 13,
+                height: 1.4,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeaderPanel(double progressValue) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0F000000),
+            blurRadius: 16,
+            offset: Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF0F4C81), Color(0xFF1E6BA8)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(
+                  Icons.grid_view_rounded,
+                  color: Colors.white,
+                  size: 23,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      "Visual Memory Task",
+                      style: TextStyle(
+                        color: Color(0xFF1C2430),
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      "${widget.user.username} · Short-term visual memory assessment",
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF64748B),
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _buildStatusBadge(),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(30),
+            child: LinearProgressIndicator(
+              value: progressValue,
+              minHeight: 6,
+              backgroundColor: const Color(0xFFE5E7EB),
+              valueColor: const AlwaysStoppedAnimation<Color>(
+                Color(0xFF1E6BA8),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              _buildMetricCard(
+                icon: Icons.flag_outlined,
+                title: "Round",
+                value: "$_currentRound / $_maxRounds",
+              ),
+              const SizedBox(width: 8),
+              _buildMetricCard(
+                icon: Icons.style_rounded,
+                title: "Cards",
+                value: "$_gridItemCount cards",
+              ),
+              const SizedBox(width: 8),
+              _buildMetricCard(
+                icon: Icons.visibility_rounded,
+                title: "Changed",
+                value: "$_changedCardCount cards",
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE0F2FE),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFBAE6FD)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.psychology_alt_rounded,
+            size: 15,
+            color: Color(0xFF0369A1),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            _phaseText(),
+            style: const TextStyle(
+              color: Color(0xFF0369A1),
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMetricCard({
+    required IconData icon,
+    required String title,
+    required String value,
+  }) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFE5E7EB)),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              color: const Color(0xFF1E6BA8),
+              size: 17,
+            ),
+            const SizedBox(width: 7),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 10.8,
+                      color: Color(0xFF64748B),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 1),
+                  Text(
+                    value,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13.2,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF1C2430),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlayArea() {
+    return Container(
+      width: double.infinity,
+      height: double.infinity,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x14000000),
+            blurRadius: 22,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          _buildCardsBackground(),
+          Positioned.fill(
+            child: Container(
+              color: Colors.white.withOpacity(0.14),
+            ),
+          ),
+          Positioned(
+            top: 20,
+            left: 20,
+            right: 20,
+            child: _buildInstructionBanner(),
+          ),
+          Positioned.fill(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 112, 24, 24),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxWidth: 520,
+                    maxHeight: 430,
+                  ),
+                  child: GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: _gridItemCount,
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      crossAxisSpacing: 14,
+                      mainAxisSpacing: 14,
+                      childAspectRatio: 1.25,
+                    ),
+                    itemBuilder: (context, index) {
+                      return RepaintBoundary(
+                        child: _buildMemoryCard(index),
+                      );
+                    },
                   ),
                 ),
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCardsBackground() {
+    return Positioned.fill(
+      child: Image.asset(
+        _cardsBackgroundAsset,
+        fit: BoxFit.cover,
+        filterQuality: FilterQuality.high,
+        errorBuilder: (_, __, ___) {
+          return Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Color(0xFF0F172A),
+                  Color(0xFF1E3A8A),
+                  Color(0xFF0F766E),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildInstructionBanner() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.92),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x12000000),
+            blurRadius: 12,
+            offset: Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Icon(
+            _feedbackMessage.isNotEmpty
+                ? _feedbackIcon()
+                : Icons.visibility_rounded,
+            color: _feedbackMessage.isNotEmpty
+                ? _feedbackColor()
+                : const Color(0xFF1E6BA8),
+            size: 23,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              _instructionText(),
+              textAlign: TextAlign.left,
+              style: TextStyle(
+                color: _feedbackMessage.isNotEmpty
+                    ? _feedbackColor()
+                    : const Color(0xFF334155),
+                fontSize: _feedbackMessage.isNotEmpty ? 17 : 14.5,
+                fontWeight: _feedbackWeight(),
+                height: 1.35,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCountdownOverlay() {
+    final progress = (_countdown / 3).clamp(0.0, 1.0);
+
+    return Container(
+      color: const Color(0xDDF4F7FB),
+      child: Center(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final cardWidth = min(
+              max(constraints.maxWidth - 40, 280.0),
+              360.0,
+            );
+
+            return Container(
+              width: cardWidth,
+              padding: const EdgeInsets.all(26),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(30),
+                border: Border.all(color: const Color(0xFFE5E7EB)),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x22000000),
+                    blurRadius: 30,
+                    offset: Offset(0, 14),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    "Memory task starting",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Color(0xFF1C2430),
+                      fontSize: 21,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    "Focus on the cards and remember which ones change color.",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Color(0xFF64748B),
+                      fontSize: 14,
+                      height: 1.4,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: 132,
+                    height: 132,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        SizedBox(
+                          width: 132,
+                          height: 132,
+                          child: CircularProgressIndicator(
+                            value: progress,
+                            strokeWidth: 9,
+                            backgroundColor: const Color(0xFFE5E7EB),
+                            valueColor: const AlwaysStoppedAnimation<Color>(
+                              Color(0xFF1E6BA8),
+                            ),
+                          ),
+                        ),
+                        AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 220),
+                          transitionBuilder: (child, animation) {
+                            return ScaleTransition(
+                              scale: animation,
+                              child: FadeTransition(
+                                opacity: animation,
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: Text(
+                            "$_countdown",
+                            key: ValueKey<int>(_countdown),
+                            style: const TextStyle(
+                              fontSize: 58,
+                              fontWeight: FontWeight.w900,
+                              color: Color(0xFF1E6BA8),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 11,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFFE5E7EB)),
+                    ),
+                    child: const Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: EdgeInsets.only(top: 1),
+                          child: Icon(
+                            Icons.info_outline_rounded,
+                            size: 18,
+                            color: Color(0xFF1E6BA8),
+                          ),
+                        ),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            "Avoid tapping before the recall question appears.",
+                            style: TextStyle(
+                              color: Color(0xFF334155),
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w700,
+                              height: 1.35,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }

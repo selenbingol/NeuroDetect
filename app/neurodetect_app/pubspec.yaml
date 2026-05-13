@@ -60,6 +60,8 @@ flutter:
   uses-material-design: true
   assets:
     - assets/fruits/
+    - assets/backgrounds/background.png
+    - assets/backgrounds/cards.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:
