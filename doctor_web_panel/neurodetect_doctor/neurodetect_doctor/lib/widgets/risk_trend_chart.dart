@@ -112,6 +112,44 @@ class RiskTrendChart extends StatelessWidget {
                 maxX: maxX,
                 minY: 0,
                 maxY: 100,
+                lineTouchData: LineTouchData(
+  enabled: true,
+  touchTooltipData: LineTouchTooltipData(
+    getTooltipColor: (touchedSpot) => const Color(0xFFF8FAFC),
+    tooltipRoundedRadius: 12,
+    tooltipPadding: const EdgeInsets.symmetric(
+      horizontal: 12,
+      vertical: 9,
+    ),
+    tooltipBorder: const BorderSide(
+      color: Color(0xFFCBD5E1),
+      width: 1,
+    ),
+    getTooltipItems: (touchedSpots) {
+      return touchedSpots.map((spot) {
+        Color textColor;
+
+        if (spot.barIndex == 0) {
+          textColor = const Color(0xFF7E22CE); // Cognitive Risk
+        } else if (spot.barIndex == 1) {
+          textColor = const Color(0xFF0369A1); // Motor Risk
+        } else {
+          textColor = const Color(0xFFB91C1C); // Overall Risk
+        }
+
+        return LineTooltipItem(
+          spot.y.toStringAsFixed(2),
+          TextStyle(
+            color: textColor,
+            fontSize: 13,
+            fontWeight: FontWeight.w900,
+            height: 1.45,
+          ),
+        );
+      }).toList();
+    },
+  ),
+),
                 gridData: const FlGridData(
                   show: true,
                   horizontalInterval: 25,
