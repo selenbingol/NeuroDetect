@@ -9,6 +9,9 @@ import '../models/patient_summary_model.dart';
 import '../models/session_report_model.dart';
 import '../services/api_service.dart';
 import '../services/pdf_service.dart';
+import '../models/fusion_assessment_model.dart';
+import '../widgets/fusion_risk_card.dart';
+import '../widgets/risk_trend_chart.dart';
 
 class PatientDetailPage extends StatefulWidget {
   final PatientSummaryModel patient;
@@ -21,6 +24,7 @@ class PatientDetailPage extends StatefulWidget {
 
 class _PatientDetailPageState extends State<PatientDetailPage> {
   final ApiService _apiService = ApiService();
+
   final GlobalKey _accuracyChartKey = GlobalKey();
   final GlobalKey _reactionChartKey = GlobalKey();
   final GlobalKey _tremorChartKey = GlobalKey();
@@ -28,6 +32,13 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
   bool _isLoading = true;
   String _errorMessage = "";
   PatientReportModel? _report;
+
+  int? _selectedSessionId;
+
+  bool _isFusionLoading = false;
+  String? _fusionError;
+  FusionAssessmentModel? _fusionAssessment;
+  List<RiskTrendPoint> _riskTrendPoints = [];
 
   @override
   void initState() {
@@ -39,19 +50,81 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
     setState(() {
       _isLoading = true;
       _errorMessage = "";
+      _fusionError = null;
     });
 
-    final report = await _apiService.getPatientReport(widget.patient.userId);
+    try {
+      final report = await _apiService.getPatientReport(widget.patient.userId);
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    setState(() {
-      _report = report;
-      _isLoading = false;
-      if (report == null) {
-        _errorMessage = "Failed to load patient report.";
+      setState(() {
+        _report = report;
+        _isLoading = false;
+
+        if (report == null) {
+          _errorMessage = "Failed to load patient report.";
+        }
+      });
+
+      if (report != null && report.sessions.isNotEmpty) {
+        final latestSession = report.sessions.first;
+
+        setState(() {
+          _selectedSessionId = latestSession.sessionId;
+        });
+
+        await _loadFusionAssessment(latestSession.sessionId);
+        await _loadRiskTrend(widget.patient.userId);
       }
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _isLoading = false;
+        _errorMessage = "Failed to load patient report: $e";
+      });
+    }
+  }
+
+  Future<void> _loadFusionAssessment(int sessionId) async {
+    setState(() {
+      _isFusionLoading = true;
+      _fusionError = null;
     });
+
+    try {
+      final fusionResult = await _apiService.getFusionAssessment(sessionId);
+
+      if (!mounted) return;
+
+      setState(() {
+        _fusionAssessment = fusionResult;
+        _isFusionLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _fusionAssessment = null;
+        _isFusionLoading = false;
+        _fusionError = "Failed to load fusion analysis: $e";
+      });
+    }
+  }
+
+  Future<void> _loadRiskTrend(int userId) async {
+    try {
+      final points = await _apiService.getRiskTrend(userId);
+
+      if (!mounted) return;
+
+      setState(() {
+        _riskTrendPoints = points;
+      });
+    } catch (e) {
+      debugPrint("Risk trend could not be loaded: $e");
+    }
   }
 
   Future<Uint8List?> _captureWidget(GlobalKey key) async {
@@ -76,8 +149,13 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
 
   String formatDate(String? raw) {
     if (raw == null) return "-";
-    final dt = DateTime.parse(raw);
-    return "${dt.day}/${dt.month}/${dt.year} ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}";
+
+    try {
+      final dt = DateTime.parse(raw);
+      return "${dt.day}/${dt.month}/${dt.year} ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}";
+    } catch (_) {
+      return "-";
+    }
   }
 
   String formatSessionType(String? sessionType) {
@@ -216,18 +294,28 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
                           children: [
                             _buildPatientHeader(),
                             const SizedBox(height: 20),
+
                             _buildRiskSection(),
                             const SizedBox(height: 20),
+
+                            _buildFusionAnalysisSection(),
+                            const SizedBox(height: 20),
+
                             _buildSummaryCards(),
                             const SizedBox(height: 20),
+
                             _buildDetailedMetricsSection(),
                             const SizedBox(height: 20),
+
                             _buildAccuracyChart(),
                             const SizedBox(height: 20),
+
                             _buildReactionChart(),
                             const SizedBox(height: 20),
+
                             _buildTremorChart(),
                             const SizedBox(height: 20),
+
                             _buildSessionTable(),
                           ],
                         ),
@@ -303,6 +391,395 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
               ),
               Text("Score: ${s.latestRiskScore ?? '-'}"),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+  
+
+  Widget _buildFusionAnalysisSection() {
+    if (_selectedSessionId == null) {
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: _cardStyle(),
+        child: const Text(
+          "No session selected for fusion analysis.",
+          style: TextStyle(color: Colors.grey),
+        ),
+      );
+    }
+
+    if (_isFusionLoading) {
+      return Container(
+        padding: const EdgeInsets.all(24),
+        decoration: _cardStyle(),
+        child: const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    if (_fusionError != null) {
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.red.shade50,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.red.shade200),
+        ),
+        child: Text(
+          _fusionError!,
+          style: TextStyle(color: Colors.red.shade700),
+        ),
+      );
+    }
+
+    if (_fusionAssessment == null) {
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: _cardStyle(),
+        child: const Text(
+          "Fusion analysis is not available for this session.",
+          style: TextStyle(color: Colors.grey),
+        ),
+      );
+    }
+
+    final fusion = _fusionAssessment!;
+
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: _cardStyle(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.auto_graph, color: Color(0xFF1E5F92)),
+              const SizedBox(width: 8),
+              const Text(
+                "Fusion-Based Risk Analysis",
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(width: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE8F1F8),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  "Session ID: $_selectedSessionId",
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF1E5F92),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+
+          Row(
+            children: [
+              Expanded(
+                child: FusionRiskCard(
+                  title: "Cognitive Risk",
+                  score: fusion.cognitiveRiskScore,
+                  subtitle: "Memory and decision-related indicators",
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: FusionRiskCard(
+                  title: "Motor Risk",
+                  score: fusion.motorRiskScore,
+                  subtitle: "Reaction and movement-related indicators",
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: FusionRiskCard(
+                  title: "Overall Risk",
+                  score: fusion.overallRiskScore,
+                  subtitle: "Combined multimodal risk score",
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 20),
+
+          // ── Katman 2: Klinik Proxy Göstergeleri ──
+          Row(
+            children: [
+              Expanded(
+                child: _buildClinicalProbCard(
+                  title: "Alzheimer Probability",
+                  probability: fusion.alzheimerProbability,
+                  riskLevel: fusion.alzheimerRiskLevel,
+                  icon: Icons.psychology,
+                  color: const Color(0xFF7E22CE),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: _buildClinicalProbCard(
+                  title: "ALS Probability",
+                  probability: fusion.alsProbability,
+                  riskLevel: fusion.alsRiskLevel,
+                  icon: Icons.accessibility_new,
+                  color: const Color(0xFF0369A1),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: FusionRiskCard(
+                  title: "Final Fusion Score",
+                  score: fusion.finalFusionScore,
+                  subtitle: "3-layer multimodal fusion result",
+                ),
+              ),
+            ],
+          ),
+
+          // ── Baskın Faktörler ──
+          if (fusion.dominantFactors.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                const Text(
+                  "Dominant Factors: ",
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF374151),
+                  ),
+                ),
+                ...fusion.dominantFactors.map((f) {
+                  final isHigh = f["impact"] == "high";
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isHigh
+                          ? const Color(0xFFFEE2E2)
+                          : const Color(0xFFFEF3C7),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: isHigh
+                            ? const Color(0xFFFCA5A5)
+                            : const Color(0xFFFDE68A),
+                      ),
+                    ),
+                    child: Text(
+                      f["label"] ?? "",
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: isHigh
+                            ? const Color(0xFFB91C1C)
+                            : const Color(0xFF92400E),
+                      ),
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ],
+
+          const SizedBox(height: 20),
+
+          _buildXAIComment(fusion),
+
+          const SizedBox(height: 24),
+
+          if (_riskTrendPoints.isNotEmpty)
+            RiskTrendChart(points: _riskTrendPoints)
+          else
+            const Text(
+              "Risk trend data is not available yet.",
+              style: TextStyle(color: Colors.grey),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildXAIComment(FusionAssessmentModel fusion) {
+    final comment = fusion.explanation.isNotEmpty
+        ? fusion.explanation
+        : _generateFallbackXAIComment(fusion);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.psychology_alt_outlined, color: Color(0xFF1E5F92)),
+              SizedBox(width: 8),
+              Text(
+                "Explainable AI Comment",
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            comment,
+            style: const TextStyle(
+              fontSize: 14,
+              height: 1.5,
+              color: Color(0xFF374151),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _generateFallbackXAIComment(FusionAssessmentModel fusion) {
+    final comments = <String>[];
+
+    if (fusion.motorRiskScore >= 70) {
+      comments.add(
+        "Motor risk appears elevated. Reaction time deviation, movement instability, tremor index, or task performance irregularity may have contributed to this score.",
+      );
+    }
+
+    if (fusion.cognitiveRiskScore >= 70) {
+      comments.add(
+        "Cognitive risk appears elevated. Decision accuracy, omission errors, memory task performance, or response consistency may have influenced this result.",
+      );
+    }
+
+    if (fusion.overallRiskScore < 40) {
+      comments.add(
+        "The overall fusion score is within a lower-risk range for this session.",
+      );
+    }
+
+    if (comments.isEmpty) {
+      comments.add(
+        "The fusion engine combined cognitive and motor indicators for this session. No single dominant risk factor was detected.",
+      );
+    }
+
+    return comments.join(" ");
+  }
+
+  Widget _buildClinicalProbCard({
+    required String title,
+    required double probability,
+    required String riskLevel,
+    required IconData icon,
+    required Color color,
+  }) {
+    final pct = (probability * 100).clamp(0, 100);
+    final levelLabel = riskLevel == "high"
+        ? "HIGH"
+        : riskLevel == "moderate"
+            ? "MODERATE"
+            : "LOW";
+    final levelColor = riskLevel == "high"
+        ? const Color(0xFFB91C1C)
+        : riskLevel == "moderate"
+            ? const Color(0xFFD97706)
+            : const Color(0xFF15803D);
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: color.withValues(alpha: 0.20)),
+        boxShadow: const [
+          BoxShadow(
+            color: Colors.black12,
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color, size: 22),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF374151),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Center(
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                SizedBox(
+                  width: 70,
+                  height: 70,
+                  child: CircularProgressIndicator(
+                    value: probability.clamp(0, 1),
+                    strokeWidth: 7,
+                    backgroundColor: const Color(0xFFE5E7EB),
+                    valueColor: AlwaysStoppedAnimation<Color>(color),
+                  ),
+                ),
+                Text(
+                  "%${pct.toStringAsFixed(0)}",
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: levelColor.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                levelLabel,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: levelColor,
+                ),
+              ),
+            ),
           ),
         ],
       ),
@@ -686,10 +1163,16 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
             "Session History",
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
+          const SizedBox(height: 8),
+          const Text(
+            "Select a session to update the fusion-based risk analysis above.",
+            style: TextStyle(color: Colors.grey),
+          ),
           const SizedBox(height: 16),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: DataTable(
+              showCheckboxColumn: false,
               columns: const [
                 DataColumn(label: Text("Date")),
                 DataColumn(label: Text("Score")),
@@ -700,11 +1183,25 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
               ],
               rows: List.generate(sessions.length, (i) {
                 final s = sessions[i];
+                final isSelected = _selectedSessionId == s.sessionId;
 
                 return DataRow(
+                  selected: isSelected,
+                  onSelectChanged: (_) async {
+                    setState(() {
+                      _selectedSessionId = s.sessionId;
+                    });
+
+                    await _loadFusionAssessment(s.sessionId);
+                  },
                   color: WidgetStateProperty.resolveWith<Color?>(
-                    (states) =>
-                        i.isEven ? Colors.white : const Color(0xFFF9FAFB),
+                    (states) {
+                      if (states.contains(WidgetState.selected)) {
+                        return const Color(0xFFE8F1F8);
+                      }
+
+                      return i.isEven ? Colors.white : const Color(0xFFF9FAFB);
+                    },
                   ),
                   cells: [
                     DataCell(Text(formatDate(s.startTime))),

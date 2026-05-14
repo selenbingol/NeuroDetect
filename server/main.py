@@ -1,7 +1,12 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import psycopg2
 from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
+from fusion_engine import calculate_digital_risk
+from multimodal_fusion import run_full_assessment
+from fastapi import Depends, HTTPException
+from sqlalchemy import create_engine, text
 
 app = FastAPI()
 
@@ -14,7 +19,7 @@ app.add_middleware(
 )
 
 DB_URL = "postgresql://neondb_owner:npg_y1YGSLtIZW0B@ep-rough-star-agysl1zm-pooler.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require"
-
+engine = create_engine(DB_URL)
 
 class RegisterData(BaseModel):
     username: str
@@ -760,3 +765,164 @@ async def get_patient_report(user_id: int):
             cur.close()
         if conn:
             conn.close()
+
+@app.get("/api/fusion/assess/{session_id}")
+def get_fusion_assessment(session_id: int):
+    """
+    3 katmanlı multimodal füzyon değerlendirmesi:
+      Katman 1 — Dijital Fenotip (cognitive/motor risk)
+      Katman 2 — Klinik Proxy (Alzheimer/ALS olasılıkları)
+      Katman 3 — Nihai Füzyon + XAI Açıklama
+
+    Sonuç hesaplandıktan sonra fusion_assessment tablosuna kaydedilir.
+    """
+    try:
+        with engine.connect() as db:
+            game_obj = db.execute(
+                text("SELECT * FROM game_metrics WHERE session_id = :sid"),
+                {"sid": session_id},
+            ).mappings().first()
+            target_obj = db.execute(
+                text("SELECT * FROM target_movement_metrics WHERE session_id = :sid"),
+                {"sid": session_id},
+            ).mappings().first()
+            memory_obj = db.execute(
+                text("SELECT * FROM visual_memory_metrics WHERE session_id = :sid"),
+                {"sid": session_id},
+            ).mappings().first()
+            sensor_obj = db.execute(
+                text("SELECT * FROM sensor_metrics WHERE session_id = :sid"),
+                {"sid": session_id},
+            ).mappings().first()
+
+            game_data = dict(game_obj) if game_obj else {}
+            target_data = dict(target_obj) if target_obj else {}
+            memory_data = dict(memory_obj) if memory_obj else {}
+            sensor_data = dict(sensor_obj) if sensor_obj else {}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Veritabanı hatası: {str(e)}")
+
+    # 3 katmanlı multimodal füzyon pipeline
+    result = run_full_assessment(
+        session_id=session_id,
+        game_data=game_data,
+        target_data=target_data,
+        memory_data=memory_data,
+        sensor_data=sensor_data,
+    )
+
+    # Sonucu fusion_assessment tablosuna kaydet (UPSERT)
+    try:
+        import json as _json
+        clinical = result.get("clinical_indicators", {})
+
+        with engine.connect() as db:
+            db.execute(text("""
+                INSERT INTO public.fusion_assessment (
+                    session_id,
+                    cognitive_risk, motor_risk, digital_risk_score,
+                    alzheimer_probability, alzheimer_risk_level, alzheimer_concern_score,
+                    als_probability, als_risk_level, als_concern_score,
+                    final_fusion_score, risk_level,
+                    xai_explanation, dominant_factors,
+                    assessed_at
+                ) VALUES (
+                    :session_id,
+                    :cognitive_risk, :motor_risk, :digital_risk_score,
+                    :alz_prob, :alz_level, :alz_concern,
+                    :als_prob, :als_level, :als_concern,
+                    :final_score, :risk_level,
+                    :xai, :factors,
+                    CURRENT_TIMESTAMP
+                )
+                ON CONFLICT (session_id) DO UPDATE SET
+                    cognitive_risk      = EXCLUDED.cognitive_risk,
+                    motor_risk          = EXCLUDED.motor_risk,
+                    digital_risk_score  = EXCLUDED.digital_risk_score,
+                    alzheimer_probability   = EXCLUDED.alzheimer_probability,
+                    alzheimer_risk_level    = EXCLUDED.alzheimer_risk_level,
+                    alzheimer_concern_score = EXCLUDED.alzheimer_concern_score,
+                    als_probability         = EXCLUDED.als_probability,
+                    als_risk_level          = EXCLUDED.als_risk_level,
+                    als_concern_score       = EXCLUDED.als_concern_score,
+                    final_fusion_score  = EXCLUDED.final_fusion_score,
+                    risk_level          = EXCLUDED.risk_level,
+                    xai_explanation     = EXCLUDED.xai_explanation,
+                    dominant_factors    = EXCLUDED.dominant_factors,
+                    assessed_at         = CURRENT_TIMESTAMP;
+            """), {
+                "session_id": session_id,
+                "cognitive_risk": result.get("cognitive_risk", 0),
+                "motor_risk": result.get("motor_risk", 0),
+                "digital_risk_score": result.get("digital_risk_score", 0),
+                "alz_prob": clinical.get("alzheimer_probability", 0),
+                "alz_level": clinical.get("alzheimer_risk_level", "low"),
+                "alz_concern": clinical.get("alzheimer_concern_score", 0),
+                "als_prob": clinical.get("als_probability", 0),
+                "als_level": clinical.get("als_risk_level", "low"),
+                "als_concern": clinical.get("als_concern_score", 0),
+                "final_score": result.get("final_fusion_score", 0),
+                "risk_level": result.get("risk_level", "low"),
+                "xai": result.get("xai_explanation", ""),
+                "factors": _json.dumps(result.get("dominant_factors", [])),
+            })
+            db.commit()
+
+        print(f"✅ Fusion assessment kaydedildi. session_id={session_id}")
+
+    except Exception as e:
+        print(f"⚠️ Fusion assessment DB kaydı başarısız (sonuç yine döner): {str(e)}")
+
+    return {"status": "success", **result}
+
+
+@app.get("/api/fusion/trend/{user_id}")
+def get_fusion_trend(user_id: int):
+    """
+    Bir hastanın TÜM oturumları için fusion risk skorlarını tek çağrıda döner.
+    Veriler fusion_assessment tablosundan okunur (önceden hesaplanmış).
+    """
+    try:
+        with engine.connect() as db:
+            rows = db.execute(text("""
+                SELECT
+                    fa.session_id,
+                    s.start_time   AS date,
+                    s.session_type,
+                    fa.cognitive_risk,
+                    fa.motor_risk,
+                    fa.final_fusion_score AS overall_risk,
+                    fa.alzheimer_probability,
+                    fa.als_probability,
+                    fa.risk_level
+                FROM public.fusion_assessment fa
+                JOIN public.session s ON fa.session_id = s.session_id
+                WHERE s.user_id = :uid
+                ORDER BY s.start_time ASC;
+            """), {"uid": user_id}).mappings().all()
+
+        trend_points = [
+            {
+                "session_id": row["session_id"],
+                "date": str(row["date"]) if row["date"] else None,
+                "session_type": row["session_type"],
+                "cognitive_risk": float(row["cognitive_risk"] or 0),
+                "motor_risk": float(row["motor_risk"] or 0),
+                "overall_risk": float(row["overall_risk"] or 0),
+                "alzheimer_probability": float(row["alzheimer_probability"] or 0),
+                "als_probability": float(row["als_probability"] or 0),
+                "risk_level": row["risk_level"],
+            }
+            for row in rows
+        ]
+
+        return {
+            "status": "success",
+            "user_id": user_id,
+            "trend": trend_points,
+        }
+
+    except Exception as e:
+        print(f"❌ Fusion trend hatası: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Fusion trend hatası: {str(e)}")

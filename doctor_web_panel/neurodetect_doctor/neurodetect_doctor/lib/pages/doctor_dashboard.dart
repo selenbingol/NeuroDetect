@@ -5,6 +5,8 @@ import '../models/session_report_model.dart';
 import '../services/api_service.dart';
 import '../widgets/patient_table.dart';
 import 'patient_detail_page.dart';
+import 'package:flutter/material.dart';
+import 'package:fl_chart/fl_chart.dart';
 
 class DoctorDashboardPage extends StatefulWidget {
   final DoctorUserModel doctor;
@@ -588,4 +590,89 @@ class _DashboardStatData {
     required this.accentColor,
     required this.backgroundColor,
   });
+}
+
+class PatientRiskTrendChart extends StatelessWidget {
+  const PatientRiskTrendChart({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 4,
+      shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(15),
+    ),
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              "Boylamsal Klinik İzlem (Longitudinal Trend)",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              "Son 5 seansa ait Nihai Füzyon Risk Skorları",
+              style: TextStyle(fontSize: 14, color: Colors.grey),
+            ),
+            const SizedBox(height: 30),
+            SizedBox(
+              height: 250,
+              child: LineChart(
+                LineChartData(
+                  gridData: FlGridData(show: true, drawVerticalLine: false),
+                  titlesData: FlTitlesData(
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        getTitlesWidget: (value, meta) {
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 8.0),
+                            child: Text('Seans ${value.toInt() + 1}', style: const TextStyle(fontSize: 12)),
+                          );
+                        },
+                        interval: 1,
+                      ),
+                    ),
+                    leftTitles: AxisTitles(
+                      sideTitles: SideTitles(showTitles: true, reservedSize: 40, interval: 20),
+                    ),
+                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  ),
+                  borderData: FlBorderData(show: false),
+                  minX: 0,
+                  maxX: 4,
+                  minY: 0,
+                  maxY: 100,
+                  lineBarsData: [
+                    LineChartBarData(
+                      // ÖRNEK VERİ: Hastanın riski giderek artmış!
+                      spots: [
+                        const FlSpot(0, 15), // 1. Seans: %15
+                        const FlSpot(1, 18), // 2. Seans: %18
+                        const FlSpot(2, 22), // 3. Seans: %22
+                        const FlSpot(3, 45), // 4. Seans: %45 (Bozulma başlıyor)
+                        const FlSpot(4, 75), // 5. Seans: %75 (Kritik!)
+                      ],
+                      isCurved: true,
+                      color: Colors.redAccent,
+                      barWidth: 4,
+                      isStrokeCapRound: true,
+                      dotData: FlDotData(show: true), // Veri noktalarını göster
+                      belowBarData: BarAreaData(
+                        show: true,
+                        color: Colors.redAccent.withOpacity(0.2), // Grafiğin altını hafif kırmızı boya
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
