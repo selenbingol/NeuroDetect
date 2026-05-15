@@ -12,6 +12,14 @@ class FusionAssessmentModel {
   final double alsProbability;
   final String alsRiskLevel;
 
+  // ML Details
+  final bool alzheimerMlUsed;
+  final double? alzheimerMciProb;
+  final double? alzheimerAdProb;
+  final double? alzheimerRuleProb;
+  final double? alzheimerMlProb;
+  final bool alsMlUsed;
+
   // Katman 3 — Nihai Füzyon
   final double finalFusionScore;
   final List<Map<String, dynamic>> dominantFactors;
@@ -29,6 +37,12 @@ class FusionAssessmentModel {
     required this.alsRiskLevel,
     required this.finalFusionScore,
     required this.dominantFactors,
+    this.alzheimerMlUsed = false,
+    this.alzheimerMciProb,
+    this.alzheimerAdProb,
+    this.alzheimerRuleProb,
+    this.alzheimerMlProb,
+    this.alsMlUsed = false,
   });
 
   factory FusionAssessmentModel.fromJson(Map<String, dynamic> json) {
@@ -86,6 +100,13 @@ class FusionAssessmentModel {
           json["als_risk_level"] ??
           "unknown",
 
+      alzheimerMlUsed: clinical["alzheimer_ml_used"] ?? false,
+      alzheimerMciProb: _toDoubleNullable(clinical["alzheimer_mci_prob"]),
+      alzheimerAdProb: _toDoubleNullable(clinical["alzheimer_ad_prob"]),
+      alzheimerRuleProb: _toDoubleNullable(clinical["alzheimer_rule_prob"]),
+      alzheimerMlProb: _toDoubleNullable(clinical["alzheimer_ml_prob"]),
+      alsMlUsed: clinical["als_ml_used"] ?? false,
+
       // Nihai füzyon
       finalFusionScore: _toDouble(
         json["final_fusion_score"] ??
@@ -105,6 +126,14 @@ class FusionAssessmentModel {
     return 0.0;
   }
 
+  static double? _toDoubleNullable(dynamic value) {
+    if (value == null) return null;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
+  }
+
   static List<Map<String, dynamic>> _parseFactors(dynamic value) {
     if (value == null) return [];
     if (value is List) {
@@ -122,6 +151,9 @@ class RiskTrendPoint {
   final double cognitiveRiskScore;
   final double motorRiskScore;
   final double overallRiskScore;
+  final double alzheimerProbability;
+  final double alsProbability;
+  final String riskLevel;
 
   RiskTrendPoint({
     required this.sessionId,
@@ -129,5 +161,8 @@ class RiskTrendPoint {
     required this.cognitiveRiskScore,
     required this.motorRiskScore,
     required this.overallRiskScore,
+    this.alzheimerProbability = 0.0,
+    this.alsProbability = 0.0,
+    this.riskLevel = 'low',
   });
 }

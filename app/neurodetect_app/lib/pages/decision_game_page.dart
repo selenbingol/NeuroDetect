@@ -202,10 +202,17 @@ class _DecisionGamePageState extends State<DecisionGamePage> {
         ? 0.0
         : _reactionTimes.reduce((a, b) => a + b) / _reactionTimes.length;
 
-    final falseAlarmRate =
-        totalAttempts > 0 ? (_falseAlarmCount / totalAttempts) * 100 : 0.0;
+    // Klinik oran hesabı: deneme türüne göre (Go vs No-Go)
+    final totalGoTrials =
+        _stimulusSequence.where((s) => s == "GREEN").length;
+    final totalNoGoTrials =
+        _stimulusSequence.where((s) => s == "RED").length;
+
+    final falseAlarmRate = totalNoGoTrials > 0
+        ? (_falseAlarmCount / totalNoGoTrials) * 100
+        : 0.0;
     final omissionRate =
-        totalAttempts > 0 ? (_omissionCount / totalAttempts) * 100 : 0.0;
+        totalGoTrials > 0 ? (_omissionCount / totalGoTrials) * 100 : 0.0;
     final falseStartRate =
         totalAttempts > 0 ? (_falseStartCount / totalAttempts) * 100 : 0.0;
 
@@ -241,7 +248,7 @@ class _DecisionGamePageState extends State<DecisionGamePage> {
       accuracy: accuracy,
       score: score,
       timestamp: DateTime.now(),
-      tapCount: _tapCount + _correctNoGoCount,
+      tapCount: _tapCount,
       missCount: totalMisses,
       falseStartCount: _falseStartCount,
       wrongTapCount: 0,

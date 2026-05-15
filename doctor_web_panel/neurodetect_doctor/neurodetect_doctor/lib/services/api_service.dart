@@ -137,6 +137,9 @@ class ApiService {
             cognitiveRiskScore: _toDouble(item["cognitive_risk"]),
             motorRiskScore: _toDouble(item["motor_risk"]),
             overallRiskScore: _toDouble(item["overall_risk"]),
+            alzheimerProbability: _toDouble(item["alzheimer_probability"]),
+            alsProbability: _toDouble(item["als_probability"]),
+            riskLevel: item["risk_level"] ?? "low",
           );
         }).toList();
       } else {

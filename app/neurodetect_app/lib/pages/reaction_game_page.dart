@@ -239,7 +239,7 @@ final List<SensorData> _sensorSamples = [];
       reactionTime: avgRT.round(),
       isSuccess: true,
       accuracy: accuracy,
-      score: (_tapCount * 10) - (_falseStartCount * 5) - (_wrongTapCount * 2),
+      score: (_tapCount * 10) - (_falseStartCount * 5) - (_wrongTapCount * 3) - (_timeoutCount * 7),
       timestamp: DateTime.now(),
 
       tapCount: _tapCount,

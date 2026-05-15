@@ -1,12 +1,11 @@
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 import psycopg2
 from pydantic import BaseModel
-from fastapi.middleware.cors import CORSMiddleware
 from fusion_engine import calculate_digital_risk
 from multimodal_fusion import run_full_assessment
-from fastapi import Depends, HTTPException
 from sqlalchemy import create_engine, text
+import httpx
 
 app = FastAPI()
 
@@ -229,7 +228,7 @@ async def start_session(data: StartSessionRequest):
 
 
 @app.post("/end-session")
-async def end_session(data: EndSessionData):
+async def end_session(data: EndSessionData, background_tasks: BackgroundTasks):
     conn = None
     cur = None
     try:
@@ -250,7 +249,10 @@ async def end_session(data: EndSessionData):
 
         conn.commit()
 
-        print(f"✅ Oturum kapatıldı. ID: {data.session_id}")
+        # Oturum kapandıktan sonra arka planda fusion değerlendirmesi başlat
+        background_tasks.add_task(_trigger_fusion_background, data.session_id)
+
+        print(f"✅ Oturum kapatıldı. ID: {data.session_id} — Fusion arka planda başlatıldı.")
         return {"status": "ended", "session_id": data.session_id}
 
     except HTTPException:
@@ -265,6 +267,30 @@ async def end_session(data: EndSessionData):
             cur.close()
         if conn:
             conn.close()
+
+
+async def _trigger_fusion_background(session_id: int):
+    """
+    Oturum kapandıktan sonra arka planda çalışır.
+    /api/fusion/assess/{session_id} endpoint'ini dahili olarak çağırarak
+    fusion değerlendirmesini hesaplar ve fusion_assessment tablosuna kaydeder.
+    Flutter uygulamasının ayrıca fusion çağrısı yapmasına gerek kalmaz.
+    """
+    try:
+        # Oyun verilerinin DB'ye yazılması için kısa bekleme
+        import asyncio
+        await asyncio.sleep(1.5)
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                f"http://127.0.0.1:8000/api/fusion/assess/{session_id}"
+            )
+            if resp.status_code == 200:
+                print(f"✅ Arka plan fusion tamamlandı. session_id={session_id}")
+            else:
+                print(f"⚠️  Arka plan fusion başarısız. session_id={session_id} status={resp.status_code}")
+    except Exception as e:
+        print(f"⚠️  Arka plan fusion hatası. session_id={session_id}: {e}")
 
 
 @app.post("/save-metrics")

@@ -51,9 +51,20 @@ def _generate_xai_explanation(
     alz_prob = alz_result.get("probability", 0)
     if alz_prob >= 0.50:
         alz_factors_text = _factors_summary(alz_result.get("factors", []))
+        
+        # MCI / AD ayrımı (sadece ML kullanıldıysa mevcuttur)
+        mci = alz_result.get("mci_prob")
+        ad  = alz_result.get("ad_prob")
+        ml_note = ""
+        if mci is not None and ad is not None:
+            if mci > ad:
+                ml_note = f" Model ağırlıklı olarak Erken/Hafif Bilişsel Bozulma (MCI: %{mci*100:.0f}) öngörmektedir."
+            else:
+                ml_note = f" Model ağırlıklı olarak İleri Düzey Alzheimer (AD: %{ad*100:.0f}) öngörmektedir."
+
         sections.append(
             f"Klinik proxy analizi Alzheimer/bilişsel bozulma olasılığını "
-            f"%{alz_prob * 100:.0f} olarak tahmin etmektedir. "
+            f"%{alz_prob * 100:.0f} olarak tahmin etmektedir.{ml_note} "
             f"Katkıda bulunan faktörler: {alz_factors_text}"
         )
     elif alz_prob >= 0.30:
@@ -183,11 +194,17 @@ def run_full_assessment(
             "alzheimer_risk_level": alz_result["risk_level"],
             "alzheimer_concern_score": alz_result["concern_score"],
             "alzheimer_factors": alz_result["factors"],
+            "alzheimer_ml_used": alz_result.get("ml_used", False),
+            "alzheimer_ml_prob": alz_result.get("ml_prob"),
+            "alzheimer_mci_prob": alz_result.get("mci_prob"),
+            "alzheimer_ad_prob": alz_result.get("ad_prob"),
+            "alzheimer_rule_prob": alz_result.get("rule_prob"),
 
             "als_probability": als_result["probability"],
             "als_risk_level": als_result["risk_level"],
             "als_concern_score": als_result["concern_score"],
             "als_factors": als_result["factors"],
+            "als_ml_used": als_result.get("ml_used", False),
         },
 
         # Katman 3 — Nihai Füzyon

@@ -803,6 +803,9 @@ Future<void> _exportPdf() async {
                 riskLevel: fusion.alzheimerRiskLevel,
                 icon: Icons.psychology_rounded,
                 color: const Color(0xFF7E22CE),
+                mlUsed: fusion.alzheimerMlUsed,
+                mciProb: fusion.alzheimerMciProb,
+                adProb: fusion.alzheimerAdProb,
               ),
             ),
             const SizedBox(width: 16),
@@ -813,6 +816,7 @@ Future<void> _exportPdf() async {
                 riskLevel: fusion.alsRiskLevel,
                 icon: Icons.accessibility_new_rounded,
                 color: const Color(0xFF0369A1),
+                mlUsed: fusion.alsMlUsed,
               ),
             ),
             const SizedBox(width: 16),
@@ -983,6 +987,9 @@ Future<void> _exportPdf() async {
     required String riskLevel,
     required IconData icon,
     required Color color,
+    bool mlUsed = false,
+    double? mciProb,
+    double? adProb,
   }) {
     final normalized = probability.clamp(0.0, 1.0).toDouble();
     final pct = (normalized * 100).clamp(0, 100);
@@ -1063,22 +1070,114 @@ Future<void> _exportPdf() async {
             ],
           ),
           const SizedBox(height: 14),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
-            decoration: BoxDecoration(
-              color: levelColor.withOpacity(0.10),
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: levelColor.withOpacity(0.20)),
-            ),
-            child: Text(
-              levelLabel,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w900,
-                color: levelColor,
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+                decoration: BoxDecoration(
+                  color: levelColor.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: levelColor.withOpacity(0.20)),
+                ),
+                child: Text(
+                  levelLabel,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    color: levelColor,
+                  ),
+                ),
+              ),
+              if (mlUsed)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFDBEAFE),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: const Color(0xFF93C5FD)),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.memory_rounded, size: 14, color: Color(0xFF1D4ED8)),
+                      SizedBox(width: 4),
+                      Text(
+                        "ML Powered",
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF1D4ED8),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+          if (mciProb != null && adProb != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  Column(
+                    children: [
+                      const Text(
+                        "MCI Prob",
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF64748B),
+                        ),
+                      ),
+                      Text(
+                        "%${(mciProb * 100).toStringAsFixed(0)}",
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
+                    ],
+                  ),
+                  Container(
+                    width: 1,
+                    height: 24,
+                    color: const Color(0xFFCBD5E1),
+                  ),
+                  Column(
+                    children: [
+                      const Text(
+                        "AD Prob",
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF64748B),
+                        ),
+                      ),
+                      Text(
+                        "%${(adProb * 100).toStringAsFixed(0)}",
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
-          ),
+          ],
         ],
       ),
     );
