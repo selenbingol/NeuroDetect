@@ -30,8 +30,6 @@ class _TargetMovementGamePageState extends State<TargetMovementGamePage> {
   static const int _fruitLifeMs = 5000;
 
   static const double _fruitSize = 220;
-  static const double _bleMotionThreshold = 0.90;
-  static const double _bleGyroThreshold = 0.35;
 
   static const double _minSlashDistance = 55;
   static const double _requiredCutCoverageRatio = 0.55;
@@ -53,6 +51,7 @@ class _TargetMovementGamePageState extends State<TargetMovementGamePage> {
   int _hitCount = 0;
   int _falseStartCount = 0;
   int _wrongMoveCount = 0;
+  int _nearMissCount = 0;
   int _timeoutCount = 0;
 
   final List<int> _reachTimes = [];
@@ -87,8 +86,13 @@ class _TargetMovementGamePageState extends State<TargetMovementGamePage> {
   bool _showSlash = false;
 
   double _avgMotion = 0;
-  double _avgGyro = 0;
-  double _tremorIndex = 0;
+double _avgGyro = 0;
+
+// 0-100 normalized clinical tremor score
+double _tremorIndex = 0;
+
+// Raw gyro variability before normalization
+double _rawMovementVariability = 0;
 
   final List<_FruitVisual> _fruitPool = [
     _FruitVisual(assetPath: 'assets/fruits/apple.png', fallback: '🍎', scale: 1.00),
@@ -154,61 +158,65 @@ class _TargetMovementGamePageState extends State<TargetMovementGamePage> {
   }
 
   void _startSensorTracking() {
-    final bleService = widget.bleService;
-    if (bleService == null) return;
+  final bleService = widget.bleService;
+  if (bleService == null) return;
 
-    _sensorSub = bleService.sensorDataStream.listen((data) {
-      _sensorSamples.add(data);
-      _updateSensorSummaries();
+  _sensorSub = bleService.sensorDataStream.listen((data) {
+    if (_isGameFinished) return;
 
-      final trigger =
-          data.motion > _bleMotionThreshold || data.gyro > _bleGyroThreshold;
+    _sensorSamples.add(data);
+    _updateSensorSummaries();
 
-      if (!trigger || !_isFruitVisible) return;
+    // IMPORTANT:
+    // BLE is used only for motor/tremor data collection.
+    // It must not trigger automatic slicing.
+  });
+}
+double _normalizeTremorIndex(double rawVariability) {
+  // Based on current prototype observations:
+  // ~0.10 = stable / no visible tremor
+  // ~60+  = very high irregular movement
+  const double stableBaseline = 0.10;
+  const double highTremorReference = 60.0;
 
-      final displaySize = _fruitSize * _currentFruitScale;
-      final fruitCenter = Offset(
-        _fruitX + displaySize / 2,
-        _fruitY + displaySize / 2,
-      );
-
-      final sensorSlashLength = 180.0;
-      final angle = atan2(data.gy, data.gx == 0 ? 0.001 : data.gx);
-
-      final start = Offset(
-        fruitCenter.dx - cos(angle) * sensorSlashLength / 2,
-        fruitCenter.dy - sin(angle) * sensorSlashLength / 2,
-      );
-      final end = Offset(
-        fruitCenter.dx + cos(angle) * sensorSlashLength / 2,
-        fruitCenter.dy + sin(angle) * sensorSlashLength / 2,
-      );
-
-      _handleSlash(start, end, fromBle: true);
-    });
+  if (rawVariability <= stableBaseline) {
+    return 0.0;
   }
+
+  final normalized =
+      ((rawVariability - stableBaseline) /
+              (highTremorReference - stableBaseline)) *
+          100;
+
+  return normalized.clamp(0.0, 100.0).toDouble();
+}
 
   void _updateSensorSummaries() {
-    if (_sensorSamples.isEmpty) return;
+  if (_sensorSamples.isEmpty) return;
 
-    _avgMotion =
-        _sensorSamples.map((e) => e.motion).reduce((a, b) => a + b) /
-            _sensorSamples.length;
-
-    _avgGyro =
-        _sensorSamples.map((e) => e.gyro).reduce((a, b) => a + b) /
-            _sensorSamples.length;
-
-    double variance = 0;
-    if (_sensorSamples.length > 1) {
-      variance = _sensorSamples
-              .map((e) => (e.gyro - _avgGyro) * (e.gyro - _avgGyro))
-              .reduce((a, b) => a + b) /
+  _avgMotion =
+      _sensorSamples.map((e) => e.motion).reduce((a, b) => a + b) /
           _sensorSamples.length;
-    }
 
-    _tremorIndex = sqrt(variance);
+  _avgGyro =
+      _sensorSamples.map((e) => e.gyro).reduce((a, b) => a + b) /
+          _sensorSamples.length;
+
+  double variance = 0;
+
+  if (_sensorSamples.length > 1) {
+    variance = _sensorSamples
+            .map((e) => (e.gyro - _avgGyro) * (e.gyro - _avgGyro))
+            .reduce((a, b) => a + b) /
+        _sensorSamples.length;
   }
+
+  final rawVariability = sqrt(variance);
+
+  _rawMovementVariability = rawVariability;
+  _tremorIndex = _normalizeTremorIndex(rawVariability);
+}
+
 
   void _prepareNextRound() {
     if (_isGameFinished) return;
@@ -377,6 +385,9 @@ class _TargetMovementGamePageState extends State<TargetMovementGamePage> {
         chordLength >= requiredChordLength) {
       _fruitAlreadyCutThisRound = true;
       _handleRoundEvent(eventType: "hit");
+    } else if (distanceToCenter <= effectiveRadius) {
+      // Slash meyveye dokundu ama kesim yeterince derin değil → near miss
+      _handleRoundEvent(eventType: "near_miss");
     } else {
       _handleRoundEvent(eventType: "wrong_move");
     }
@@ -457,6 +468,9 @@ class _TargetMovementGamePageState extends State<TargetMovementGamePage> {
       } else if (eventType == "false_start") {
         _falseStartCount++;
         _feedbackMessage = "Too early";
+      } else if (eventType == "near_miss") {
+        _nearMissCount++;
+        _feedbackMessage = "Almost!";
       } else if (eventType == "wrong_move") {
         _wrongMoveCount++;
         _feedbackMessage = "Missed slice";
@@ -505,20 +519,40 @@ class _TargetMovementGamePageState extends State<TargetMovementGamePage> {
     );
 
     await _apiService.sendGameMetrics(
-      sessionId: _sessionId!,
-      score: result.score,
-      reactionTimeMs: result.reactionTime,
-      accuracyRate: result.accuracy,
-      missCount: result.missCount,
-      tapCount: result.tapCount,
-      falseStartCount: result.falseStartCount,
-      wrongTapCount: result.wrongTapCount,
-      timeoutCount: result.timeoutCount,
-      falseAlarmCount: result.falseAlarmCount,
-      omissionCount: result.omissionCount,
-    );
+  sessionId: _sessionId!,
+  score: result.score,
+  reactionTimeMs: result.reactionTime,
+  accuracyRate: result.accuracy,
+  missCount: result.missCount,
+  tapCount: result.tapCount,
+  falseStartCount: result.falseStartCount,
+  wrongTapCount: result.wrongTapCount,
+  timeoutCount: result.timeoutCount,
+  falseAlarmCount: result.falseAlarmCount,
+  omissionCount: result.omissionCount,
+);
 
-    await _apiService.endSession(_sessionId!);
+await _apiService.saveSensorMetrics(
+  sessionId: _sessionId!,
+  avgMotion: _sensorSamples.isEmpty ? null : _avgMotion,
+  avgGyro: _sensorSamples.isEmpty ? null : _avgGyro,
+  tremorIndex: _sensorSamples.isEmpty ? null : _tremorIndex,
+  movementVariability: _sensorSamples.isEmpty ? null : _rawMovementVariability,
+  pathCorrectionCount: _wrongMoveCount,
+  sampleCount: _sensorSamples.length,
+);
+
+await _apiService.saveTargetMovementMetrics(
+  sessionId: _sessionId!,
+  sliceHitCount: _hitCount,
+  sliceMissCount: _wrongMoveCount,
+  successfulCutCount: _hitCount,
+  nearMissCount: _nearMissCount,
+  avgSliceLength: null, // Fiziksel slash uzunluğu henüz ölçülmüyor
+  avgCutCoverage: accuracy, // 0-100 ölçeğinde (clinical_proxy.py bunu bekliyor)
+);
+
+await _apiService.endSession(_sessionId!);
 
     if (!mounted) return;
     Navigator.pop(context);

@@ -45,10 +45,10 @@ def calculate_digital_risk(session_id: int, game_data: dict, target_data: dict, 
 
     # EĞER SENSÖR VERİSİ GELDİYSE (Şimdilik boş gelebilir, hata vermesin diye kontrol ediyoruz)
     if sensor_data:
-        # Tremor (titreme) indeksi motor bozuklukta en yüksek ağırlığa sahiptir!
-        tremor_penalty = sensor_data.get("tremor_index", 0.0) * 20.0
+        # tremorIndex: Flutter'dan 0-100 normalize edilmiş klinik skor (yüksek ağırlık)
+        tremor_penalty = sensor_data.get("tremor_index", 0.0)
+        # movement_variability: ham gyro standart sapması (~0-5 arası)
         variability_penalty = sensor_data.get("movement_variability", 0.0) * 10.0
-        
         motor_risk += tremor_penalty + variability_penalty
 
     # Skoru 0-100 arasına sıkıştır

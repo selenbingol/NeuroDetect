@@ -47,46 +47,51 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
     _loadReport();
   }
 
-  Future<void> _loadReport() async {
+Future<void> _loadReport() async {
+  setState(() {
+    _isLoading = true;
+    _errorMessage = "";
+    _fusionError = null;
+    _fusionAssessment = null;
+  });
+
+  try {
+    final report = await _apiService.getPatientReport(widget.patient.userId);
+
+    List<RiskTrendPoint> trendPoints = [];
+
+    if (report != null) {
+      try {
+        trendPoints = await _apiService.getRiskTrend(widget.patient.userId);
+      } catch (e) {
+        debugPrint("Risk trend could not be loaded: $e");
+      }
+    }
+
+    if (!mounted) return;
+
     setState(() {
-      _isLoading = true;
-      _errorMessage = "";
-      _fusionError = null;
+      _report = report;
+      _riskTrendPoints = trendPoints;
+      _isLoading = false;
+
+      if (report == null) {
+        _errorMessage = "Failed to load patient report.";
+      }
     });
 
-    try {
-      final report = await _apiService.getPatientReport(widget.patient.userId);
-
-      if (!mounted) return;
-
-      setState(() {
-        _report = report;
-        _isLoading = false;
-
-        if (report == null) {
-          _errorMessage = "Failed to load patient report.";
-        }
-      });
-
-      if (report != null && report.sessions.isNotEmpty) {
-        final latestSession = report.sessions.first;
-
-        setState(() {
-          _selectedSessionId = latestSession.sessionId;
-        });
-
-        await _loadFusionAssessment(latestSession.sessionId);
-        await _loadRiskTrend(widget.patient.userId);
-      }
-    } catch (e) {
-      if (!mounted) return;
-
-      setState(() {
-        _isLoading = false;
-        _errorMessage = "Failed to load patient report: $e";
-      });
+    if (report != null && report.sessions.isNotEmpty) {
+      await _loadBestFusionAssessment(report);
     }
+  } catch (e) {
+    if (!mounted) return;
+
+    setState(() {
+      _isLoading = false;
+      _errorMessage = "Failed to load patient report: $e";
+    });
   }
+}
 
   Future<void> _loadFusionAssessment(int sessionId) async {
     setState(() {
@@ -127,6 +132,63 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
       debugPrint("Risk trend could not be loaded: $e");
     }
   }
+  bool _hasDigitalRisk(FusionAssessmentModel fusion) {
+  return fusion.cognitiveRiskScore > 0 ||
+      fusion.motorRiskScore > 0 ||
+      fusion.overallRiskScore > 0;
+}
+
+Future<void> _loadBestFusionAssessment(PatientReportModel report) async {
+  if (report.sessions.isEmpty) return;
+
+  setState(() {
+    _isFusionLoading = true;
+    _fusionError = null;
+  });
+
+  FusionAssessmentModel? fallbackFusion;
+  int? fallbackSessionId;
+
+  // Çok fazla API çağrısı yapmamak için son 30 session yeterli.
+  final recentSessions = report.sessions.take(30).toList();
+
+  for (final session in recentSessions) {
+    try {
+      final fusion = await _apiService.getFusionAssessment(session.sessionId);
+
+      fallbackFusion ??= fusion;
+      fallbackSessionId ??= session.sessionId;
+
+      if (_hasDigitalRisk(fusion)) {
+        if (!mounted) return;
+
+        setState(() {
+          _selectedSessionId = session.sessionId;
+          _fusionAssessment = fusion;
+          _isFusionLoading = false;
+        });
+
+        return;
+      }
+    } catch (e) {
+      debugPrint("Fusion could not be loaded for session ${session.sessionId}: $e");
+    }
+  }
+
+  if (!mounted) return;
+
+  // Hiç cognitive/motor/overall risk üreten session yoksa,
+  // en azından gelen ilk fusion sonucunu göster.
+  setState(() {
+    _selectedSessionId = fallbackSessionId ?? report.sessions.first.sessionId;
+    _fusionAssessment = fallbackFusion;
+    _isFusionLoading = false;
+
+    if (fallbackFusion == null) {
+      _fusionError = "Fusion analysis is not available for recent sessions.";
+    }
+  });
+}
 
   Future<Uint8List?> _captureWidget(
   GlobalKey key, {
@@ -278,6 +340,17 @@ Future<void> _exportPdf() async {
     }
     return null;
   }
+  bool _isTaskSession(SessionReportItem session) {
+  return session.sessionType == "reaction" ||
+      session.sessionType == "decision" ||
+      session.sessionType == "target_movement" ||
+      session.sessionType == "visual_memory";
+}
+
+int get _taskSessionCount {
+  final sessions = _report?.sessions ?? [];
+  return sessions.where(_isTaskSession).length;
+}
 
   @override
   Widget build(BuildContext context) {
@@ -449,7 +522,11 @@ Future<void> _exportPdf() async {
   Widget _buildPatientHeader() {
     final p = _report!.patient;
     final s = _report!.summary;
-    final riskColor = _riskColor(s.latestRiskLevel);
+    final displayRiskLevel =
+    (_isFusionLoading && _fusionAssessment == null)
+        ? "Loading..."
+        : (_fusionAssessment?.riskLevel ?? s.latestRiskLevel);
+    final riskColor = _riskColor(displayRiskLevel);
 
     return Container(
       width: double.infinity,
@@ -512,9 +589,9 @@ Future<void> _exportPdf() async {
                     _headerChip(Icons.badge_rounded, "Patient ID: ${p.userId}"),
                     _headerChip(Icons.email_rounded, p.email),
                     _headerChip(
-                      Icons.event_note_rounded,
-                      "${s.totalSessions} sessions",
-                    ),
+  Icons.event_note_rounded,
+  "$_taskSessionCount task sessions",
+),
                   ],
                 ),
               ],
@@ -551,7 +628,7 @@ Future<void> _exportPdf() async {
                       ),
                     ),
                     Text(
-                      s.latestRiskLevel ?? "No data",
+                      displayRiskLevel ?? "No data",
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 16,
@@ -595,100 +672,134 @@ Future<void> _exportPdf() async {
     );
   }
 
-  Widget _buildRiskSection() {
-    final s = _report!.summary;
-    final riskLevel = s.latestRiskLevel ?? "No data";
-    final riskColor = _riskColor(s.latestRiskLevel);
-    final riskScore = s.latestRiskScore;
-
+Widget _buildRiskSection() {
+  if (_isFusionLoading && _fusionAssessment == null) {
     return Container(
       padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: riskColor.withOpacity(0.25)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x10000000),
-            blurRadius: 22,
-            offset: Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Row(
+      decoration: _panelDecoration(),
+      child: const Row(
         children: [
-          Container(
-            width: 58,
-            height: 58,
-            decoration: BoxDecoration(
-              color: riskColor.withOpacity(0.10),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Icon(
-              Icons.monitor_heart_rounded,
-              color: riskColor,
-              size: 30,
+          SizedBox(
+            width: 34,
+            height: 34,
+            child: CircularProgressIndicator(
+              strokeWidth: 3,
+              color: Color(0xFF1E6BA8),
             ),
           ),
-          const SizedBox(width: 16),
+          SizedBox(width: 16),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  "AI Risk Assessment",
-                  style: TextStyle(
-                    color: Color(0xFF64748B),
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  riskLevel,
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w900,
-                    color: riskColor,
-                    letterSpacing: -0.4,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: const Color(0xFFE5E7EB)),
-            ),
-            child: Column(
-              children: [
-                const Text(
-                  "Risk Score",
-                  style: TextStyle(
-                    color: Color(0xFF64748B),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  riskScore == null ? "-" : riskScore.toString(),
-                  style: TextStyle(
-                    color: riskColor,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ],
+            child: Text(
+              "Loading AI risk assessment...",
+              style: TextStyle(
+                color: Color(0xFF64748B),
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ),
         ],
       ),
     );
   }
+  final s = _report!.summary;
+
+  final fusion = _fusionAssessment;
+
+  final riskLevel = fusion?.riskLevel ?? s.latestRiskLevel ?? "No data";
+  final riskColor = _riskColor(riskLevel);
+
+  final double? riskScore =
+      fusion?.finalFusionScore ?? s.latestRiskScore?.toDouble();
+
+  return Container(
+    padding: const EdgeInsets.all(22),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(28),
+      border: Border.all(color: riskColor.withOpacity(0.25)),
+      boxShadow: const [
+        BoxShadow(
+          color: Color(0x10000000),
+          blurRadius: 22,
+          offset: Offset(0, 8),
+        ),
+      ],
+    ),
+    child: Row(
+      children: [
+        Container(
+          width: 58,
+          height: 58,
+          decoration: BoxDecoration(
+            color: riskColor.withOpacity(0.10),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Icon(
+            Icons.monitor_heart_rounded,
+            color: riskColor,
+            size: 30,
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                "AI Risk Assessment",
+                style: TextStyle(
+                  color: Color(0xFF64748B),
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                riskLevel,
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w900,
+                  color: riskColor,
+                  letterSpacing: -0.4,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF8FAFC),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0xFFE5E7EB)),
+          ),
+          child: Column(
+            children: [
+              const Text(
+                "Risk Score",
+                style: TextStyle(
+                  color: Color(0xFF64748B),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                riskScore == null ? "-" : riskScore.toStringAsFixed(1),
+                style: TextStyle(
+                  color: riskColor,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
 
   Widget _buildFusionAnalysisSection() {
   if (_selectedSessionId == null) {
@@ -783,12 +894,12 @@ Future<void> _exportPdf() async {
             ),
             const SizedBox(width: 16),
             Expanded(
-              child: FusionRiskCard(
-                title: "Overall Risk",
-                score: fusion.overallRiskScore,
-                subtitle: "Combined multimodal risk score",
-              ),
-            ),
+  child: FusionRiskCard(
+    title: "Digital Risk Score",
+    score: fusion.overallRiskScore,
+    subtitle: "Average of cognitive and motor indicators",
+  ),
+),
           ],
         ),
 
@@ -1187,7 +1298,7 @@ Future<void> _exportPdf() async {
     final s = _report!.summary;
 
     final cards = [
-      _SummaryData("Sessions", s.totalSessions.toString(), Icons.event_note_rounded),
+      _SummaryData("Task Sessions", _taskSessionCount.toString(), Icons.event_note_rounded),
       _SummaryData("Accuracy", "${s.avgAccuracy.toStringAsFixed(1)}%", Icons.check_circle_rounded),
       _SummaryData("Score", s.avgScore.toStringAsFixed(1), Icons.insights_rounded),
       _SummaryData("Reaction", "${s.avgReactionTime.toStringAsFixed(0)} ms", Icons.timer_rounded),

@@ -55,30 +55,44 @@ class _AssessmentFlowPageState extends State<AssessmentFlowPage> {
       ),
     ),
   ];
+Future<void> _disconnectSensorAfterAssessment() async {
+  final bleService = widget.bleService;
+  if (bleService == null) return;
 
-  Future<void> _openCurrentTask() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => _tasks[_currentStep].pageBuilder(),
-      ),
-    );
+  try {
+    await bleService.disconnect();
+    debugPrint("BLE sensor disconnected after visual memory task.");
+  } catch (e) {
+    debugPrint("BLE disconnect error after assessment: $e");
+  }
+}
+Future<void> _openCurrentTask() async {
+  await Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => _tasks[_currentStep].pageBuilder(),
+    ),
+  );
+
+  if (!mounted) return;
+
+  if (_currentStep < _tasks.length - 1) {
+    setState(() {
+      _currentStep++;
+    });
+  } else {
+    await _disconnectSensorAfterAssessment();
 
     if (!mounted) return;
 
-    if (_currentStep < _tasks.length - 1) {
-      setState(() {
-        _currentStep++;
-      });
-    } else {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const CompletionPage(),
-        ),
-      );
-    }
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const CompletionPage(),
+      ),
+    );
   }
+}
 
   @override
   Widget build(BuildContext context) {

@@ -5,7 +5,6 @@ import '../models/session_report_model.dart';
 import '../services/api_service.dart';
 import '../widgets/patient_table.dart';
 import 'patient_detail_page.dart';
-import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 
 class DoctorDashboardPage extends StatefulWidget {
@@ -89,7 +88,34 @@ class _DoctorDashboardPageState extends State<DoctorDashboardPage> {
       }
     });
   }
+String get _todayDateLabel {
+  final now = DateTime.now();
 
+  const months = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  ];
+
+  return "${now.day} ${months[now.month - 1]} ${now.year}";
+}
+
+String get _todayShortLabel {
+  final now = DateTime.now();
+  final day = now.day.toString().padLeft(2, '0');
+  final month = now.month.toString().padLeft(2, '0');
+
+  return "$day/$month/${now.year}";
+}
   String get _doctorDisplayName {
     final username = widget.doctor.username.trim();
     if (username.isEmpty) return "Doctor";
@@ -99,14 +125,20 @@ class _DoctorDashboardPageState extends State<DoctorDashboardPage> {
   @override
   Widget build(BuildContext context) {
     final totalPatients = _patients.length;
-    final totalSessions = _patients.fold<int>(
-      0,
-      (sum, p) => sum + p.sessionDates.length,
-    );
+    final totalSessions =
+    _totalReactionSessions +
+    _totalDecisionSessions +
+    _totalTargetMovementSessions +
+    _totalVisualMemorySessions;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF3F6FA),
-      body: SafeArea(
+  body: DefaultTextStyle.merge(
+    style: const TextStyle(
+      fontFamily: "Inter",
+      letterSpacing: -0.1,
+    ),
+      child: SafeArea(
         child: _isLoading
             ? _buildLoadingView()
             : RefreshIndicator(
@@ -131,6 +163,7 @@ class _DoctorDashboardPageState extends State<DoctorDashboardPage> {
                 ),
               ),
       ),
+    ),
     );
   }
 
@@ -229,53 +262,90 @@ class _DoctorDashboardPageState extends State<DoctorDashboardPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                  Text(
                   "Welcome, Dr. $_doctorDisplayName",
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 28,
                     fontWeight: FontWeight.w900,
-                    letterSpacing: -0.4,
+                    letterSpacing: -0.5,
                   ),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 7),
               ],
             ),
           ),
           const SizedBox(width: 18),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.16),
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(
-                color: Colors.white.withOpacity(0.28),
-              ),
-            ),
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Icon(
-                  Icons.verified_user_rounded,
-                  color: Colors.white,
-                  size: 18,
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.16),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: Colors.white.withOpacity(0.28),
+                    ),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.verified_user_rounded,
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                      SizedBox(width: 7),
+                      Text(
+                        "Doctor Panel",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.1,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                SizedBox(width: 7),
-                Text(
-                  "Doctor Panel",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.14),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: Colors.white.withOpacity(0.26),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.calendar_month_rounded,
+                        color: Colors.white,
+                        size: 17,
+                      ),
+                      const SizedBox(width: 7),
+                      Text(
+                        _todayDateLabel,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.1,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
-          ),
-        ],
-      ),
-    );
+                    ],
+                    ),
+                );
   }
 
   Widget _buildOverviewSection({
@@ -306,20 +376,20 @@ class _DoctorDashboardPageState extends State<DoctorDashboardPage> {
             final cardWidth = (width - ((columns - 1) * spacing)) / columns;
 
             final cards = [
-              _DashboardStatData(
-                title: "Total Patients",
-                value: totalPatients.toString(),
-                icon: Icons.people_alt_rounded,
-                accentColor: const Color(0xFF0369A1),
-                backgroundColor: const Color(0xFFE0F2FE),
-              ),
-              _DashboardStatData(
-                title: "Total Sessions",
-                value: totalSessions.toString(),
-                icon: Icons.analytics_rounded,
-                accentColor: const Color(0xFF4338CA),
-                backgroundColor: const Color(0xFFE0E7FF),
-              ),
+            _DashboardStatData(
+              title: "Total Patients",
+              value: totalPatients.toString(),
+              icon: Icons.people_alt_rounded,
+              accentColor: const Color(0xFF0369A1),
+              backgroundColor: const Color(0xFFE0F2FE),
+            ),
+            _DashboardStatData(
+              title: "Total Task Sessions",
+              value: totalSessions.toString(),
+              icon: Icons.analytics_rounded,
+              accentColor: const Color(0xFF4338CA),
+              backgroundColor: const Color(0xFFE0E7FF),
+            ),
               _DashboardStatData(
                 title: "Reaction Sessions",
                 value: _totalReactionSessions.toString(),

@@ -570,7 +570,9 @@ async def get_patients():
             ) AS session_dates
         FROM public."user" u
         LEFT JOIN public.patients p ON u.user_id = p.user_id
-        LEFT JOIN public.session s ON u.user_id = s.user_id
+        LEFT JOIN public.session s 
+    ON u.user_id = s.user_id
+   AND s.session_type IN ('reaction', 'decision', 'target_movement', 'visual_memory')
         WHERE u.role = 'patient'
         GROUP BY
             u.user_id,
@@ -593,7 +595,7 @@ async def get_patients():
                 "dob": None if row[3] is None else str(row[3]),
                 "phone": row[4] if row[4] else "",
                 "gender": row[5] if row[5] else "",
-                "session_dates": [str(dt) for dt in row[6]] if row[6] else []
+                "session_dates": [str(dt) for dt in row[6]] if row[6] else [],
             }
             for row in rows
         ]
