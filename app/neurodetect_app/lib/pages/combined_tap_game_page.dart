@@ -81,11 +81,16 @@ class _CombinedTapGamePageState extends State<CombinedTapGamePage> {
   int _decisionFalseStartCount = 0;
   final List<int> _decisionReactionTimes = [];
 
+  StreamSubscription<SensorData>? _sensorSub;
+  final List<SensorData> _reactionSensorSamples = [];
+  final List<SensorData> _decisionSensorSamples = [];
+
   @override
   void initState() {
     super.initState();
     _decisionSequence = _buildDecisionSequence();
     _startSessions();
+    _startSensorTracking();
   }
 
   @override
@@ -93,6 +98,7 @@ class _CombinedTapGamePageState extends State<CombinedTapGamePage> {
     _countdownTimer?.cancel();
     _stimulusDelayTimer?.cancel();
     _stimulusTimeoutTimer?.cancel();
+    _sensorSub?.cancel();
     super.dispose();
   }
 
@@ -122,6 +128,72 @@ class _CombinedTapGamePageState extends State<CombinedTapGamePage> {
     if (reactionId != null && decisionId != null) {
       _runCountdown();
     }
+  }
+
+  void _startSensorTracking() {
+    final bleService = widget.bleService;
+    if (bleService == null) return;
+
+    _sensorSub = bleService.sensorDataStream.listen((data) {
+      if (_isGameFinished) return;
+
+      if (_phase == _CombinedPhase.reaction) {
+        _reactionSensorSamples.add(data);
+      } else {
+        _decisionSensorSamples.add(data);
+      }
+    });
+  }
+
+  double _normalizeTremorIndex(double rawVariability) {
+    const double stableBaseline = 0.10;
+    const double highTremorReference = 60.0;
+
+    if (rawVariability <= stableBaseline) {
+      return 0.0;
+    }
+
+    final normalized =
+        ((rawVariability - stableBaseline) /
+                (highTremorReference - stableBaseline)) *
+            100;
+
+    return normalized.clamp(0.0, 100.0).toDouble();
+  }
+
+  Map<String, double?> _calculateSensorMetrics(List<SensorData> samples) {
+    if (samples.isEmpty) {
+      return {
+        "avgMotion": null,
+        "avgGyro": null,
+        "tremorIndex": null,
+        "movementVariability": null,
+      };
+    }
+
+    final avgMotion =
+        samples.map((e) => e.motion).reduce((a, b) => a + b) / samples.length;
+
+    final avgGyro =
+        samples.map((e) => e.gyro).reduce((a, b) => a + b) / samples.length;
+
+    double variance = 0;
+    if (samples.length > 1) {
+      variance = samples
+              .map((e) => (e.gyro - avgGyro) * (e.gyro - avgGyro))
+              .reduce((a, b) => a + b) /
+          samples.length;
+    }
+
+    final rawVariability = sqrt(variance);
+    final tremorIndex = _normalizeTremorIndex(rawVariability);
+
+    return {
+      "avgMotion": avgMotion,
+      "avgGyro": avgGyro,
+      "tremorIndex": tremorIndex,
+      "movementVariability": rawVariability,
+    };
   }
 
   void _runCountdown() {
@@ -402,6 +474,17 @@ class _CombinedTapGamePageState extends State<CombinedTapGamePage> {
         omissionCount: reactionResult.omissionCount,
       );
 
+      final rxMetrics = _calculateSensorMetrics(_reactionSensorSamples);
+      await _apiService.saveSensorMetrics(
+        sessionId: _reactionSessionId!,
+        avgMotion: rxMetrics["avgMotion"],
+        avgGyro: rxMetrics["avgGyro"],
+        tremorIndex: rxMetrics["tremorIndex"],
+        movementVariability: rxMetrics["movementVariability"],
+        pathCorrectionCount: 0,
+        sampleCount: _reactionSensorSamples.length,
+      );
+
       await _apiService.endSession(_reactionSessionId!);
     }
 
@@ -458,6 +541,17 @@ class _CombinedTapGamePageState extends State<CombinedTapGamePage> {
         timeoutCount: decisionResult.timeoutCount,
         falseAlarmCount: decisionResult.falseAlarmCount,
         omissionCount: decisionResult.omissionCount,
+      );
+
+      final decMetrics = _calculateSensorMetrics(_decisionSensorSamples);
+      await _apiService.saveSensorMetrics(
+        sessionId: _decisionSessionId!,
+        avgMotion: decMetrics["avgMotion"],
+        avgGyro: decMetrics["avgGyro"],
+        tremorIndex: decMetrics["tremorIndex"],
+        movementVariability: decMetrics["movementVariability"],
+        pathCorrectionCount: 0,
+        sampleCount: _decisionSensorSamples.length,
       );
 
       await _apiService.endSession(_decisionSessionId!);

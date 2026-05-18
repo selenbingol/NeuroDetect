@@ -46,6 +46,9 @@ class PatientInfo {
   String get fullName {
     final first = firstName?.trim() ?? "";
     final last = lastName?.trim() ?? "";
+    if (first == last && first.isNotEmpty) {
+      return first;
+    }
     final combined = "$first $last".trim();
     return combined.isEmpty ? username : combined;
   }

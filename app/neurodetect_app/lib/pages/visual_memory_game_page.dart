@@ -42,6 +42,8 @@ class _VisualMemoryGamePageState extends State<VisualMemoryGamePage> {
   static const String _cardsBackgroundAsset = 'assets/backgrounds/cards.png';
 
   int? _sessionId;
+  StreamSubscription<SensorData>? _sensorSub;
+  final List<SensorData> _sensorSamples = [];
 
   bool _isLoadingSession = true;
   bool _isCountdownActive = true;
@@ -76,6 +78,7 @@ class _VisualMemoryGamePageState extends State<VisualMemoryGamePage> {
   @override
   void initState() {
     super.initState();
+    _startSensorTracking();
     _startSession();
   }
 
@@ -85,6 +88,7 @@ class _VisualMemoryGamePageState extends State<VisualMemoryGamePage> {
     _initialBlueTimer?.cancel();
     _changedRedTimer?.cancel();
     _answerTimer?.cancel();
+    _sensorSub?.cancel();
     super.dispose();
   }
 
@@ -317,6 +321,17 @@ class _VisualMemoryGamePageState extends State<VisualMemoryGamePage> {
       avgReactionTimeMs: avgReactionTime,
       accuracyRate: accuracy,
       memoryScore: memoryScore,
+    );
+
+    final sensorMetrics = _calculateSensorMetrics(_sensorSamples);
+    await _apiService.saveSensorMetrics(
+      sessionId: _sessionId!,
+      avgMotion: sensorMetrics["avgMotion"],
+      avgGyro: sensorMetrics["avgGyro"],
+      tremorIndex: sensorMetrics["tremorIndex"],
+      movementVariability: sensorMetrics["movementVariability"],
+      pathCorrectionCount: 0,
+      sampleCount: _sensorSamples.length,
     );
 
     await _apiService.endSession(_sessionId!);
@@ -1030,5 +1045,66 @@ class _VisualMemoryGamePageState extends State<VisualMemoryGamePage> {
         ),
       ),
     );
+  }
+
+  void _startSensorTracking() {
+    final bleService = widget.bleService;
+    if (bleService == null) return;
+
+    _sensorSub = bleService.sensorDataStream.listen((data) {
+      if (_isGameFinished) return;
+      _sensorSamples.add(data);
+    });
+  }
+
+  double _normalizeTremorIndex(double rawVariability) {
+    const double stableBaseline = 0.10;
+    const double highTremorReference = 60.0;
+
+    if (rawVariability <= stableBaseline) {
+      return 0.0;
+    }
+
+    final normalized =
+        ((rawVariability - stableBaseline) /
+                (highTremorReference - stableBaseline)) *
+            100;
+
+    return normalized.clamp(0.0, 100.0).toDouble();
+  }
+
+  Map<String, double?> _calculateSensorMetrics(List<SensorData> samples) {
+    if (samples.isEmpty) {
+      return {
+        "avgMotion": null,
+        "avgGyro": null,
+        "tremorIndex": null,
+        "movementVariability": null,
+      };
+    }
+
+    final avgMotion =
+        samples.map((e) => e.motion).reduce((a, b) => a + b) / samples.length;
+
+    final avgGyro =
+        samples.map((e) => e.gyro).reduce((a, b) => a + b) / samples.length;
+
+    double variance = 0;
+    if (samples.length > 1) {
+      variance = samples
+              .map((e) => (e.gyro - avgGyro) * (e.gyro - avgGyro))
+              .reduce((a, b) => a + b) /
+          samples.length;
+    }
+
+    final rawVariability = sqrt(variance);
+    final tremorIndex = _normalizeTremorIndex(rawVariability);
+
+    return {
+      "avgMotion": avgMotion,
+      "avgGyro": avgGyro,
+      "tremorIndex": tremorIndex,
+      "movementVariability": rawVariability,
+    };
   }
 }

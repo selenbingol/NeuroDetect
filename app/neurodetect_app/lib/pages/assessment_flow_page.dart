@@ -52,6 +52,7 @@ class _AssessmentFlowPageState extends State<AssessmentFlowPage> {
       buttonText: "Start Visual Memory Task",
       pageBuilder: () => VisualMemoryGamePage(
         user: widget.user,
+        bleService: widget.bleService,
       ),
     ),
   ];

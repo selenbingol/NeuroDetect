@@ -263,7 +263,11 @@ Future<void> _exportPdf() async {
     if (raw == null) return "-";
 
     try {
-      final dt = DateTime.parse(raw);
+      String formattedRaw = raw;
+      if (!formattedRaw.endsWith("Z") && !formattedRaw.contains("+")) {
+        formattedRaw = formattedRaw.replaceAll(" ", "T") + "Z";
+      }
+      final dt = DateTime.parse(formattedRaw).toLocal();
       final day = dt.day.toString().padLeft(2, "0");
       final month = dt.month.toString().padLeft(2, "0");
       final hour = dt.hour.toString().padLeft(2, "0");
