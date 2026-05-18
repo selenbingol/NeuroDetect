@@ -847,7 +847,20 @@ def get_fusion_assessment(session_id: int):
         import json as _json
         clinical = result.get("clinical_indicators", {})
 
-        with engine.connect() as db:
+        def _float(val):
+            if val is None:
+                return 0.0
+            if hasattr(val, "item"):
+                try:
+                    return float(val.item())
+                except:
+                    pass
+            try:
+                return float(val)
+            except:
+                return 0.0
+
+        with engine.begin() as db:
             db.execute(text("""
                 INSERT INTO public.fusion_assessment (
                     session_id,
@@ -883,21 +896,20 @@ def get_fusion_assessment(session_id: int):
                     assessed_at         = CURRENT_TIMESTAMP;
             """), {
                 "session_id": session_id,
-                "cognitive_risk": result.get("cognitive_risk", 0),
-                "motor_risk": result.get("motor_risk", 0),
-                "digital_risk_score": result.get("digital_risk_score", 0),
-                "alz_prob": clinical.get("alzheimer_probability", 0),
+                "cognitive_risk": _float(result.get("cognitive_risk", 0)),
+                "motor_risk": _float(result.get("motor_risk", 0)),
+                "digital_risk_score": _float(result.get("digital_risk_score", 0)),
+                "alz_prob": _float(clinical.get("alzheimer_probability", 0)),
                 "alz_level": clinical.get("alzheimer_risk_level", "low"),
-                "alz_concern": clinical.get("alzheimer_concern_score", 0),
-                "als_prob": clinical.get("als_probability", 0),
+                "alz_concern": _float(clinical.get("alzheimer_concern_score", 0)),
+                "als_prob": _float(clinical.get("als_probability", 0)),
                 "als_level": clinical.get("als_risk_level", "low"),
-                "als_concern": clinical.get("als_concern_score", 0),
-                "final_score": result.get("final_fusion_score", 0),
+                "als_concern": _float(clinical.get("als_concern_score", 0)),
+                "final_score": _float(result.get("final_fusion_score", 0)),
                 "risk_level": result.get("risk_level", "low"),
                 "xai": result.get("xai_explanation", ""),
                 "factors": _json.dumps(result.get("dominant_factors", [])),
             })
-            db.commit()
 
         print(f"✅ Fusion assessment kaydedildi. session_id={session_id}")
 
