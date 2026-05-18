@@ -3,7 +3,7 @@ import 'package:http/http.dart' as http;
 import '../models/user_model.dart';
 
 class ApiService {
-  final String _baseUrl = "http://localhost:8000";
+  final String _baseUrl = "https://neurodetect-api.onrender.com";
   final String _aiUrl = "http://localhost:5000";
 
   // --- KULLANICI İŞLEMLERİ ---

@@ -848,6 +848,20 @@ Widget _buildRiskSection() {
 
   final fusion = _fusionAssessment!;
 
+  SessionReportItem? selectedSession;
+  if (_report != null) {
+    for (final s in _report!.sessions) {
+      if (s.sessionId == _selectedSessionId) {
+        selectedSession = s;
+        break;
+      }
+    }
+  }
+
+  final bool hasSensorData = selectedSession != null &&
+      selectedSession.sampleCount != null &&
+      selectedSession.sampleCount! > 0;
+
   return Container(
     padding: const EdgeInsets.all(24),
     decoration: _panelDecoration(),
@@ -871,74 +885,134 @@ Widget _buildRiskSection() {
           title: "Fusion-Based Clinical Analysis",
           subtitle:
               "Three-layer multimodal fusion result for the selected assessment session.",
-          trailing: _softBadge("Session ID: $_selectedSessionId"),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _softBadge("Session ID: $_selectedSessionId"),
+              const SizedBox(width: 8),
+              if (hasSensorData)
+                _sensorActiveBadge()
+              else
+                _sensorInactiveBadge(),
+            ],
+          ),
         ),
         const SizedBox(height: 18),
 
-        Row(
-          children: [
-            Expanded(
-              child: FusionRiskCard(
-                title: "Cognitive Risk",
-                score: fusion.cognitiveRiskScore,
-                subtitle: "Memory and decision-related indicators",
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: FusionRiskCard(
+                  title: "Cognitive Risk",
+                  score: fusion.cognitiveRiskScore,
+                  subtitle: "Memory and decision-related indicators",
+                ),
               ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: FusionRiskCard(
-                title: "Motor Risk",
-                score: fusion.motorRiskScore,
-                subtitle: "Reaction and movement-related indicators",
+              const SizedBox(width: 16),
+              Expanded(
+                child: FusionRiskCard(
+                  title: "Motor Risk",
+                  score: fusion.motorRiskScore,
+                  subtitle: "Reaction and movement-related indicators",
+                ),
               ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-  child: FusionRiskCard(
-    title: "Digital Risk Score",
-    score: fusion.overallRiskScore,
-    subtitle: "Average of cognitive and motor indicators",
-  ),
-),
-          ],
+              const SizedBox(width: 16),
+              Expanded(
+                child: FusionRiskCard(
+                  title: "Digital Risk Score",
+                  score: fusion.overallRiskScore,
+                  subtitle: "Average of cognitive and motor indicators",
+                ),
+              ),
+            ],
+          ),
         ),
+
+        if (!hasSensorData) ...[
+          const SizedBox(height: 16),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFEF3C7),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: const Color(0xFFFDE68A)),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.warning_amber_rounded, color: Color(0xFFD97706), size: 24),
+                SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "Clinical Notice: Touchscreen-Only Session",
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF92400E),
+                        ),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        "No physical BLE sensor telemetry (tremor, spatial motion) was captured for this session. The Motor Risk score represents touchscreen interaction dynamics only (reaction time, target touch accuracy) and cannot rule out sub-clinical physical hand tremors.",
+                        style: TextStyle(
+                          fontSize: 13,
+                          height: 1.4,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFFB45309),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
 
         const SizedBox(height: 18),
 
-        Row(
-          children: [
-            Expanded(
-              child: _buildClinicalProbCard(
-                title: "Alzheimer Probability",
-                probability: fusion.alzheimerProbability,
-                riskLevel: fusion.alzheimerRiskLevel,
-                icon: Icons.psychology_rounded,
-                color: const Color(0xFF7E22CE),
-                mlUsed: fusion.alzheimerMlUsed,
-                mciProb: fusion.alzheimerMciProb,
-                adProb: fusion.alzheimerAdProb,
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: _buildClinicalProbCard(
+                  title: "Alzheimer Probability",
+                  probability: fusion.alzheimerProbability,
+                  riskLevel: fusion.alzheimerRiskLevel,
+                  icon: Icons.psychology_rounded,
+                  color: const Color(0xFF7E22CE),
+                  mlUsed: fusion.alzheimerMlUsed,
+                  mciProb: fusion.alzheimerMciProb,
+                  adProb: fusion.alzheimerAdProb,
+                ),
               ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: _buildClinicalProbCard(
-                title: "ALS Probability",
-                probability: fusion.alsProbability,
-                riskLevel: fusion.alsRiskLevel,
-                icon: Icons.accessibility_new_rounded,
-                color: const Color(0xFF0369A1),
-                mlUsed: fusion.alsMlUsed,
+              const SizedBox(width: 16),
+              Expanded(
+                child: _buildClinicalProbCard(
+                  title: "ALS Probability",
+                  probability: fusion.alsProbability,
+                  riskLevel: fusion.alsRiskLevel,
+                  icon: Icons.accessibility_new_rounded,
+                  color: const Color(0xFF0369A1),
+                  mlUsed: fusion.alsMlUsed,
+                ),
               ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: FusionRiskCard(
-                title: "Final Fusion Score",
-                score: fusion.finalFusionScore,
-                subtitle: "Final 3-layer decision-support output",
+              const SizedBox(width: 16),
+              Expanded(
+                child: FusionRiskCard(
+                  title: "Final Fusion Score",
+                  score: fusion.finalFusionScore,
+                  subtitle: "Final 3-layer decision-support output",
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
 
         if (fusion.dominantFactors.isNotEmpty) ...[
@@ -2053,6 +2127,58 @@ Widget _buildRiskSection() {
           fontSize: 12.5,
           fontWeight: FontWeight.w900,
         ),
+      ),
+    );
+  }
+
+  Widget _sensorActiveBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+      decoration: BoxDecoration(
+        color: const Color(0xFFDCFCE7),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFBBF7D0)),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.sensors_rounded, size: 14, color: Color(0xFF16A34A)),
+          SizedBox(width: 4),
+          Text(
+            "BLE Sensor Active",
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w900,
+              color: Color(0xFF16A34A),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sensorInactiveBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFEF3C7),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFFDE68A)),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.touch_app_rounded, size: 14, color: Color(0xFFD97706)),
+          SizedBox(width: 4),
+          Text(
+            "Touch Mode",
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w900,
+              color: Color(0xFFD97706),
+            ),
+          ),
+        ],
       ),
     );
   }

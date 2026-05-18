@@ -83,10 +83,6 @@ final List<SensorData> _sensorSamples = [];
 
     _sensorSub = bleService.sensorDataStream.listen((data) {
       _sensorSamples.add(data);
-
-      debugPrint(
-        "REACTION SENSOR SAMPLE => motion: ${data.motion}, gyro: ${data.gyro}",
-      );
     });
   }
   Future<void> _startSession() async {

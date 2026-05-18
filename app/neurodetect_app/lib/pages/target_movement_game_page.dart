@@ -165,7 +165,6 @@ double _rawMovementVariability = 0;
     if (_isGameFinished) return;
 
     _sensorSamples.add(data);
-    _updateSensorSummaries();
 
     // IMPORTANT:
     // BLE is used only for motor/tremor data collection.
@@ -487,6 +486,9 @@ double _normalizeTremorIndex(double rawVariability) {
     if (_isGameFinished || _sessionId == null) return;
 
     setState(() => _isGameFinished = true);
+
+    // Sunucuya göndermeden önce tüm sensör metriklerini tek seferde hesapla (UI donmasını önlemek için)
+    _updateSensorSummaries();
 
     final totalAttempts =
         _hitCount + _falseStartCount + _wrongMoveCount + _timeoutCount;

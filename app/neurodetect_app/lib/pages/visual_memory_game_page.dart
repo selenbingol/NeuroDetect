@@ -760,39 +760,58 @@ class _VisualMemoryGamePageState extends State<VisualMemoryGamePage> {
               color: Colors.white.withOpacity(0.14),
             ),
           ),
-          Positioned(
-            top: 20,
-            left: 20,
-            right: 20,
-            child: _buildInstructionBanner(),
-          ),
           Positioned.fill(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 112, 24, 24),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    maxWidth: 520,
-                    maxHeight: 430,
-                  ),
-                  child: GridView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: _gridItemCount,
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 3,
-                      crossAxisSpacing: 14,
-                      mainAxisSpacing: 14,
-                      childAspectRatio: 1.25,
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  _buildInstructionBanner(),
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(
+                          maxWidth: 520,
+                          maxHeight: 430,
+                        ),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final double availableWidth = constraints.maxWidth;
+                            final double availableHeight = constraints.maxHeight;
+
+                            // Horizontal and vertical spacing = 2 * 14 = 28
+                            final double itemWidth = (availableWidth - 28) / 3;
+                            final double itemHeight = (availableHeight - 28) / 3;
+
+                            // Dynamically calculate aspect ratio to fit the available space
+                            double ratio = itemWidth / itemHeight;
+                            
+                            // Keep it within reasonable bounds so cards still look beautiful
+                            if (ratio < 0.85) ratio = 0.85;
+                            if (ratio > 1.35) ratio = 1.35;
+
+                            return GridView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: _gridItemCount,
+                              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 3,
+                                crossAxisSpacing: 14,
+                                mainAxisSpacing: 14,
+                                childAspectRatio: ratio,
+                              ),
+                              itemBuilder: (context, index) {
+                                return RepaintBoundary(
+                                  child: _buildMemoryCard(index),
+                                );
+                              },
+                            );
+                          },
+                        ),
+                      ),
                     ),
-                    itemBuilder: (context, index) {
-                      return RepaintBoundary(
-                        child: _buildMemoryCard(index),
-                      );
-                    },
                   ),
-                ),
+                ],
               ),
             ),
           ),

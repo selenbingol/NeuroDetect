@@ -7,7 +7,7 @@ import '../models/session_report_model.dart';
 import '../models/fusion_assessment_model.dart';
 
 class ApiService {
-  final String _baseUrl = "http://127.0.0.1:8000";
+  final String _baseUrl = "https://neurodetect-api.onrender.com";
 
   Future<DoctorUserModel?> loginDoctor(String username, String password) async {
     try {
