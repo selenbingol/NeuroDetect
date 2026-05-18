@@ -281,9 +281,11 @@ async def _trigger_fusion_background(session_id: int):
         import asyncio
         await asyncio.sleep(1.5)
 
+        import os
+        port = os.environ.get("PORT", "8000")
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(
-                f"http://127.0.0.1:8000/api/fusion/assess/{session_id}"
+                f"http://127.0.0.1:{port}/api/fusion/assess/{session_id}"
             )
             if resp.status_code == 200:
                 print(f"✅ Arka plan fusion tamamlandı. session_id={session_id}")
