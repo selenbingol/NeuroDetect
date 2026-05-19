@@ -84,6 +84,7 @@ class _TargetMovementGamePageState extends State<TargetMovementGamePage> {
   Offset? _slashStart;
   Offset? _slashEnd;
   bool _showSlash = false;
+  bool _dragStartedWithFruitVisible = false;
 
   double _avgMotion = 0;
 double _avgGyro = 0;
@@ -232,6 +233,11 @@ double _normalizeTremorIndex(double rawVariability) {
       _feedbackMessage = "";
       _fruitAlreadyCutThisRound = false;
       _showSlash = false;
+      _dragStartPoint = null;
+      _dragCurrentPoint = null;
+      _slashStart = null;
+      _slashEnd = null;
+      _dragStartedWithFruitVisible = false;
     });
 
     _roundDelayTimer = Timer(
@@ -458,6 +464,11 @@ double _normalizeTremorIndex(double rawVariability) {
     setState(() {
       _isFruitVisible = false;
       _isWaitingForFruit = false;
+      _dragStartPoint = null;
+      _dragCurrentPoint = null;
+      _slashStart = null;
+      _slashEnd = null;
+      _dragStartedWithFruitVisible = false;
 
       if (eventType == "hit") {
         _hitCount++;
@@ -520,44 +531,95 @@ double _normalizeTremorIndex(double rawVariability) {
       omissionCount: 0,
     );
 
-    await _apiService.sendGameMetrics(
-  sessionId: _sessionId!,
-  score: result.score,
-  reactionTimeMs: result.reactionTime,
-  accuracyRate: result.accuracy,
-  missCount: result.missCount,
-  tapCount: result.tapCount,
-  falseStartCount: result.falseStartCount,
-  wrongTapCount: result.wrongTapCount,
-  timeoutCount: result.timeoutCount,
-  falseAlarmCount: result.falseAlarmCount,
-  omissionCount: result.omissionCount,
-);
+    // Show a beautiful, professional, non-dismissible saving overlay
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return PopScope(
+          canPop: false,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.all(28),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Colors.black26,
+                    blurRadius: 18,
+                    offset: Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: const Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF1E6BA8)),
+                  ),
+                  SizedBox(height: 20),
+                  Text(
+                    "Saving results...",
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF1C2430),
+                      decoration: TextDecoration.none,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
 
-await _apiService.saveSensorMetrics(
-  sessionId: _sessionId!,
-  avgMotion: _sensorSamples.isEmpty ? null : _avgMotion,
-  avgGyro: _sensorSamples.isEmpty ? null : _avgGyro,
-  tremorIndex: _sensorSamples.isEmpty ? null : _tremorIndex,
-  movementVariability: _sensorSamples.isEmpty ? null : _rawMovementVariability,
-  pathCorrectionCount: _wrongMoveCount,
-  sampleCount: _sensorSamples.length,
-);
+    try {
+      await _apiService.sendGameMetrics(
+        sessionId: _sessionId!,
+        score: result.score,
+        reactionTimeMs: result.reactionTime,
+        accuracyRate: result.accuracy,
+        missCount: result.missCount,
+        tapCount: result.tapCount,
+        falseStartCount: result.falseStartCount,
+        wrongTapCount: result.wrongTapCount,
+        timeoutCount: result.timeoutCount,
+        falseAlarmCount: result.falseAlarmCount,
+        omissionCount: result.omissionCount,
+      );
 
-await _apiService.saveTargetMovementMetrics(
-  sessionId: _sessionId!,
-  sliceHitCount: _hitCount,
-  sliceMissCount: _wrongMoveCount,
-  successfulCutCount: _hitCount,
-  nearMissCount: _nearMissCount,
-  avgSliceLength: null, // Fiziksel slash uzunluğu henüz ölçülmüyor
-  avgCutCoverage: accuracy, // 0-100 ölçeğinde (clinical_proxy.py bunu bekliyor)
-);
+      await _apiService.saveSensorMetrics(
+        sessionId: _sessionId!,
+        avgMotion: _sensorSamples.isEmpty ? null : _avgMotion,
+        avgGyro: _sensorSamples.isEmpty ? null : _avgGyro,
+        tremorIndex: _sensorSamples.isEmpty ? null : _tremorIndex,
+        movementVariability: _sensorSamples.isEmpty ? null : _rawMovementVariability,
+        pathCorrectionCount: _wrongMoveCount,
+        sampleCount: _sensorSamples.length,
+      );
 
-await _apiService.endSession(_sessionId!);
+      await _apiService.saveTargetMovementMetrics(
+        sessionId: _sessionId!,
+        sliceHitCount: _hitCount,
+        sliceMissCount: _wrongMoveCount,
+        successfulCutCount: _hitCount,
+        nearMissCount: _nearMissCount,
+        avgSliceLength: null,
+        avgCutCoverage: accuracy,
+      );
 
-    if (!mounted) return;
-    Navigator.pop(context);
+      await _apiService.endSession(_sessionId!);
+    } catch (e) {
+      debugPrint("Error saving target movement metrics: $e");
+    } finally {
+      if (mounted) {
+        Navigator.pop(context); // Pop saving dialog
+        Navigator.pop(context); // Pop game page
+      }
+    }
   }
 
   Color _feedbackColor() {
@@ -887,6 +949,7 @@ await _apiService.endSession(_sessionId!);
           onPanStart: (details) {
             _dragStartPoint = details.localPosition;
             _dragCurrentPoint = details.localPosition;
+            _dragStartedWithFruitVisible = _isFruitVisible;
           },
           onPanUpdate: (details) {
             setState(() {
@@ -903,7 +966,17 @@ await _apiService.endSession(_sessionId!);
               final distance = sqrt(dx * dx + dy * dy);
 
               if (distance >= _minSlashDistance) {
-                _handleSlash(_dragStartPoint!, _dragCurrentPoint!);
+                if (_dragStartedWithFruitVisible) {
+                  _handleSlash(_dragStartPoint!, _dragCurrentPoint!);
+                } else {
+                  if (_isWaitingForFruit) {
+                    _handleRoundEvent(eventType: "false_start");
+                  } else {
+                    setState(() {
+                      _showSlash = false;
+                    });
+                  }
+                }
               } else {
                 setState(() {
                   _showSlash = false;
@@ -913,6 +986,7 @@ await _apiService.endSession(_sessionId!);
 
             _dragStartPoint = null;
             _dragCurrentPoint = null;
+            _dragStartedWithFruitVisible = false;
           },
           child: Container(
             width: double.infinity,

@@ -427,152 +427,203 @@ class _CombinedTapGamePageState extends State<CombinedTapGamePage> {
     if (_isGameFinished) return;
     setState(() => _isGameFinished = true);
 
-    if (_reactionSessionId != null) {
-      final reactionAttempts = _reactionTapCount +
-          _reactionFalseStartCount +
-          _reactionWrongTapCount +
-          _reactionTimeoutCount;
-
-      final reactionAvgRT = _reactionTimes.isEmpty
-          ? 0.0
-          : _reactionTimes.reduce((a, b) => a + b) / _reactionTimes.length;
-
-      final reactionAccuracy = reactionAttempts == 0
-          ? 0.0
-          : (_reactionTapCount / reactionAttempts) * 100;
-
-      final reactionMisses = _reactionWrongTapCount + _reactionTimeoutCount;
-
-      final reactionResult = TestResult(
-        reactionTime: reactionAvgRT.round(),
-        isSuccess: true,
-        accuracy: reactionAccuracy,
-        score: (_reactionTapCount * 10) -
-            (_reactionFalseStartCount * 5) -
-            (_reactionWrongTapCount * 2),
-        timestamp: DateTime.now(),
-        tapCount: _reactionTapCount,
-        missCount: reactionMisses,
-        falseStartCount: _reactionFalseStartCount,
-        wrongTapCount: _reactionWrongTapCount,
-        timeoutCount: _reactionTimeoutCount,
-        falseAlarmCount: 0,
-        omissionCount: 0,
-      );
-
-      await _apiService.sendGameMetrics(
-        sessionId: _reactionSessionId!,
-        score: reactionResult.score,
-        reactionTimeMs: reactionResult.reactionTime,
-        accuracyRate: reactionResult.accuracy,
-        missCount: reactionResult.missCount,
-        tapCount: reactionResult.tapCount,
-        falseStartCount: reactionResult.falseStartCount,
-        wrongTapCount: reactionResult.wrongTapCount,
-        timeoutCount: reactionResult.timeoutCount,
-        falseAlarmCount: reactionResult.falseAlarmCount,
-        omissionCount: reactionResult.omissionCount,
-      );
-
-      final rxMetrics = _calculateSensorMetrics(_reactionSensorSamples);
-      await _apiService.saveSensorMetrics(
-        sessionId: _reactionSessionId!,
-        avgMotion: rxMetrics["avgMotion"],
-        avgGyro: rxMetrics["avgGyro"],
-        tremorIndex: rxMetrics["tremorIndex"],
-        movementVariability: rxMetrics["movementVariability"],
-        pathCorrectionCount: 0,
-        sampleCount: _reactionSensorSamples.length,
-      );
-
-      await _apiService.endSession(_reactionSessionId!);
-    }
-
-    if (_decisionSessionId != null) {
-      final decisionCorrect = _decisionTapCount + _decisionCorrectNoGoCount;
-      final decisionAttempts = _decisionTapCount +
-          _decisionCorrectNoGoCount +
-          _decisionFalseAlarmCount +
-          _decisionOmissionCount +
-          _decisionFalseStartCount;
-
-      final decisionAccuracy = decisionAttempts == 0
-          ? 0.0
-          : (decisionCorrect / decisionAttempts) * 100;
-
-      final decisionAvgRT = _decisionReactionTimes.isEmpty
-          ? 0.0
-          : _decisionReactionTimes.reduce((a, b) => a + b) /
-              _decisionReactionTimes.length;
-
-      final decisionMisses = _decisionFalseAlarmCount +
-          _decisionOmissionCount +
-          _decisionFalseStartCount;
-
-      final decisionScore = (decisionCorrect * 10) -
-          (_decisionFalseAlarmCount * 15) -
-          (_decisionFalseStartCount * 5) -
-          (_decisionOmissionCount * 2);
-
-      final decisionResult = TestResult(
-        reactionTime: decisionAvgRT.round(),
-        isSuccess: true,
-        accuracy: decisionAccuracy,
-        score: decisionScore,
-        timestamp: DateTime.now(),
-        tapCount: _decisionTapCount + _decisionCorrectNoGoCount,
-        missCount: decisionMisses,
-        falseStartCount: _decisionFalseStartCount,
-        wrongTapCount: 0,
-        timeoutCount: 0,
-        falseAlarmCount: _decisionFalseAlarmCount,
-        omissionCount: _decisionOmissionCount,
-      );
-
-      await _apiService.sendGameMetrics(
-        sessionId: _decisionSessionId!,
-        score: decisionResult.score,
-        reactionTimeMs: decisionResult.reactionTime,
-        accuracyRate: decisionResult.accuracy,
-        missCount: decisionResult.missCount,
-        tapCount: decisionResult.tapCount,
-        falseStartCount: decisionResult.falseStartCount,
-        wrongTapCount: decisionResult.wrongTapCount,
-        timeoutCount: decisionResult.timeoutCount,
-        falseAlarmCount: decisionResult.falseAlarmCount,
-        omissionCount: decisionResult.omissionCount,
-      );
-
-      final decMetrics = _calculateSensorMetrics(_decisionSensorSamples);
-      await _apiService.saveSensorMetrics(
-        sessionId: _decisionSessionId!,
-        avgMotion: decMetrics["avgMotion"],
-        avgGyro: decMetrics["avgGyro"],
-        tremorIndex: decMetrics["tremorIndex"],
-        movementVariability: decMetrics["movementVariability"],
-        pathCorrectionCount: 0,
-        sampleCount: _decisionSensorSamples.length,
-      );
-
-      await _apiService.endSession(_decisionSessionId!);
-
-      try {
-        await _apiService.getAiPrediction(
-          mri: [1600.0, 0.75, 1.0],
-          clinical: [75.0, 14.0, 2.0, 28.0, 0.0, 1.0],
-          game: [
-            decisionAvgRT,
-            decisionAccuracy,
-            decisionMisses.toDouble(),
-          ],
+    // Show a beautiful, professional, non-dismissible saving overlay
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return PopScope(
+          canPop: false,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.all(28),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Colors.black26,
+                    blurRadius: 18,
+                    offset: Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: const Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF1E6BA8)),
+                  ),
+                  SizedBox(height: 20),
+                  Text(
+                    "Saving results...",
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF1C2430),
+                      decoration: TextDecoration.none,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         );
-      } catch (e) {
-        debugPrint("AI error: $e");
+      },
+    );
+
+    try {
+      if (_reactionSessionId != null) {
+        final reactionAttempts = _reactionTapCount +
+            _reactionFalseStartCount +
+            _reactionWrongTapCount +
+            _reactionTimeoutCount;
+
+        final reactionAvgRT = _reactionTimes.isEmpty
+            ? 0.0
+            : _reactionTimes.reduce((a, b) => a + b) / _reactionTimes.length;
+
+        final reactionAccuracy = reactionAttempts == 0
+            ? 0.0
+            : (_reactionTapCount / reactionAttempts) * 100;
+
+        final reactionMisses = _reactionWrongTapCount + _reactionTimeoutCount;
+
+        final reactionResult = TestResult(
+          reactionTime: reactionAvgRT.round(),
+          isSuccess: true,
+          accuracy: reactionAccuracy,
+          score: (_reactionTapCount * 10) -
+              (_reactionFalseStartCount * 5) -
+              (_reactionWrongTapCount * 2),
+          timestamp: DateTime.now(),
+          tapCount: _reactionTapCount,
+          missCount: reactionMisses,
+          falseStartCount: _reactionFalseStartCount,
+          wrongTapCount: _reactionWrongTapCount,
+          timeoutCount: _reactionTimeoutCount,
+          falseAlarmCount: 0,
+          omissionCount: 0,
+        );
+
+        await _apiService.sendGameMetrics(
+          sessionId: _reactionSessionId!,
+          score: reactionResult.score,
+          reactionTimeMs: reactionResult.reactionTime,
+          accuracyRate: reactionResult.accuracy,
+          missCount: reactionResult.missCount,
+          tapCount: reactionResult.tapCount,
+          falseStartCount: reactionResult.falseStartCount,
+          wrongTapCount: reactionResult.wrongTapCount,
+          timeoutCount: reactionResult.timeoutCount,
+          falseAlarmCount: reactionResult.falseAlarmCount,
+          omissionCount: reactionResult.omissionCount,
+        );
+
+        final rxMetrics = _calculateSensorMetrics(_reactionSensorSamples);
+        await _apiService.saveSensorMetrics(
+          sessionId: _reactionSessionId!,
+          avgMotion: rxMetrics["avgMotion"],
+          avgGyro: rxMetrics["avgGyro"],
+          tremorIndex: rxMetrics["tremorIndex"],
+          movementVariability: rxMetrics["movementVariability"],
+          pathCorrectionCount: 0,
+          sampleCount: _reactionSensorSamples.length,
+        );
+
+        await _apiService.endSession(_reactionSessionId!);
+      }
+
+      if (_decisionSessionId != null) {
+        final decisionCorrect = _decisionTapCount + _decisionCorrectNoGoCount;
+        final decisionAttempts = _decisionTapCount +
+            _decisionCorrectNoGoCount +
+            _decisionFalseAlarmCount +
+            _decisionOmissionCount +
+            _decisionFalseStartCount;
+
+        final decisionAccuracy = decisionAttempts == 0
+            ? 0.0
+            : (decisionCorrect / decisionAttempts) * 100;
+
+        final decisionAvgRT = _decisionReactionTimes.isEmpty
+            ? 0.0
+            : _decisionReactionTimes.reduce((a, b) => a + b) /
+                _decisionReactionTimes.length;
+
+        final decisionMisses = _decisionFalseAlarmCount +
+            _decisionOmissionCount +
+            _decisionFalseStartCount;
+
+        final decisionScore = (decisionCorrect * 10) -
+            (_decisionFalseAlarmCount * 15) -
+            (_decisionFalseStartCount * 5) -
+            (_decisionOmissionCount * 2);
+
+        final decisionResult = TestResult(
+          reactionTime: decisionAvgRT.round(),
+          isSuccess: true,
+          accuracy: decisionAccuracy,
+          score: decisionScore,
+          timestamp: DateTime.now(),
+          tapCount: _decisionTapCount + _decisionCorrectNoGoCount,
+          missCount: decisionMisses,
+          falseStartCount: _decisionFalseStartCount,
+          wrongTapCount: 0,
+          timeoutCount: 0,
+          falseAlarmCount: _decisionFalseAlarmCount,
+          omissionCount: _decisionOmissionCount,
+        );
+
+        await _apiService.sendGameMetrics(
+          sessionId: _decisionSessionId!,
+          score: decisionResult.score,
+          reactionTimeMs: decisionResult.reactionTime,
+          accuracyRate: decisionResult.accuracy,
+          missCount: decisionResult.missCount,
+          tapCount: decisionResult.tapCount,
+          falseStartCount: decisionResult.falseStartCount,
+          wrongTapCount: decisionResult.wrongTapCount,
+          timeoutCount: decisionResult.timeoutCount,
+          falseAlarmCount: decisionResult.falseAlarmCount,
+          omissionCount: decisionResult.omissionCount,
+        );
+
+        final decMetrics = _calculateSensorMetrics(_decisionSensorSamples);
+        await _apiService.saveSensorMetrics(
+          sessionId: _decisionSessionId!,
+          avgMotion: decMetrics["avgMotion"],
+          avgGyro: decMetrics["avgGyro"],
+          tremorIndex: decMetrics["tremorIndex"],
+          movementVariability: decMetrics["movementVariability"],
+          pathCorrectionCount: 0,
+          sampleCount: _decisionSensorSamples.length,
+        );
+
+        await _apiService.endSession(_decisionSessionId!);
+
+        try {
+          await _apiService.getAiPrediction(
+            mri: [1600.0, 0.75, 1.0],
+            clinical: [75.0, 14.0, 2.0, 28.0, 0.0, 1.0],
+            game: [
+              decisionAvgRT,
+              decisionAccuracy,
+              decisionMisses.toDouble(),
+            ],
+          );
+        } catch (e) {
+          debugPrint("AI error: $e");
+        }
+      }
+    } catch (e) {
+      debugPrint("Error saving combined game metrics: $e");
+    } finally {
+      if (mounted) {
+        Navigator.pop(context); // Pop saving dialog
+        Navigator.pop(context); // Pop game page
       }
     }
-
-    if (!mounted) return;
-    Navigator.pop(context);
   }
 
   String _phaseTitle() {

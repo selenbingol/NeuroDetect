@@ -293,51 +293,102 @@ class _VisualMemoryGamePageState extends State<VisualMemoryGamePage> {
       omissionCount: _omissionCount,
     );
 
-    await _apiService.sendGameMetrics(
-      sessionId: _sessionId!,
-      score: result.score,
-      reactionTimeMs: result.reactionTime,
-      accuracyRate: result.accuracy,
-      missCount: result.missCount,
-      tapCount: result.tapCount,
-      falseStartCount: result.falseStartCount,
-      wrongTapCount: result.wrongTapCount,
-      timeoutCount: result.timeoutCount,
-      falseAlarmCount: result.falseAlarmCount,
-      omissionCount: result.omissionCount,
+    // Show a beautiful, professional, non-dismissible saving overlay
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return PopScope(
+          canPop: false,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.all(28),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Colors.black26,
+                    blurRadius: 18,
+                    offset: Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: const Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF1E6BA8)),
+                  ),
+                  SizedBox(height: 20),
+                  Text(
+                    "Saving results...",
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF1C2430),
+                      decoration: TextDecoration.none,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
 
-    await _apiService.saveVisualMemoryMetrics(
-      sessionId: _sessionId!,
-      totalRounds: _maxRounds,
-      gridItemCount: _gridItemCount,
-      changedCardCount: _changedCardCount,
-      correctSelectionCount: _correctSelectionCount,
-      falseSelectionCount: _falseSelectionCount,
-      omissionCount: _omissionCount,
-      falseStartCount: _falseStartCount,
-      totalTargets: totalTargets,
-      totalMisses: totalMisses,
-      avgReactionTimeMs: avgReactionTime,
-      accuracyRate: accuracy,
-      memoryScore: memoryScore,
-    );
+    try {
+      await _apiService.sendGameMetrics(
+        sessionId: _sessionId!,
+        score: result.score,
+        reactionTimeMs: result.reactionTime,
+        accuracyRate: result.accuracy,
+        missCount: result.missCount,
+        tapCount: result.tapCount,
+        falseStartCount: result.falseStartCount,
+        wrongTapCount: result.wrongTapCount,
+        timeoutCount: result.timeoutCount,
+        falseAlarmCount: result.falseAlarmCount,
+        omissionCount: result.omissionCount,
+      );
 
-    final sensorMetrics = _calculateSensorMetrics(_sensorSamples);
-    await _apiService.saveSensorMetrics(
-      sessionId: _sessionId!,
-      avgMotion: sensorMetrics["avgMotion"],
-      avgGyro: sensorMetrics["avgGyro"],
-      tremorIndex: sensorMetrics["tremorIndex"],
-      movementVariability: sensorMetrics["movementVariability"],
-      pathCorrectionCount: 0,
-      sampleCount: _sensorSamples.length,
-    );
+      await _apiService.saveVisualMemoryMetrics(
+        sessionId: _sessionId!,
+        totalRounds: _maxRounds,
+        gridItemCount: _gridItemCount,
+        changedCardCount: _changedCardCount,
+        correctSelectionCount: _correctSelectionCount,
+        falseSelectionCount: _falseSelectionCount,
+        omissionCount: _omissionCount,
+        falseStartCount: _falseStartCount,
+        totalTargets: totalTargets,
+        totalMisses: totalMisses,
+        avgReactionTimeMs: avgReactionTime,
+        accuracyRate: accuracy,
+        memoryScore: memoryScore,
+      );
 
-    await _apiService.endSession(_sessionId!);
+      final sensorMetrics = _calculateSensorMetrics(_sensorSamples);
+      await _apiService.saveSensorMetrics(
+        sessionId: _sessionId!,
+        avgMotion: sensorMetrics["avgMotion"],
+        avgGyro: sensorMetrics["avgGyro"],
+        tremorIndex: sensorMetrics["tremorIndex"],
+        movementVariability: sensorMetrics["movementVariability"],
+        pathCorrectionCount: 0,
+        sampleCount: _sensorSamples.length,
+      );
 
-    if (!mounted) return;
-    Navigator.pop(context);
+      await _apiService.endSession(_sessionId!);
+    } catch (e) {
+      debugPrint("Error saving visual memory metrics: $e");
+    } finally {
+      if (mounted) {
+        Navigator.pop(context); // Pop saving dialog
+        Navigator.pop(context); // Pop game page
+      }
+    }
   }
 
   bool _isChangedCardVisible(int index) {
@@ -794,32 +845,43 @@ class _VisualMemoryGamePageState extends State<VisualMemoryGamePage> {
                             final double availableWidth = constraints.maxWidth;
                             final double availableHeight = constraints.maxHeight;
 
-                            // Horizontal and vertical spacing = 2 * 14 = 28
-                            final double itemWidth = (availableWidth - 28) / 3;
-                            final double itemHeight = (availableHeight - 28) / 3;
+                            final double gridAvailableRatio = (availableWidth - 28) / (availableHeight - 28);
+                            // Clamp card aspect ratio between 0.8 and 1.25 to keep cards looking beautiful
+                            final double ratio = gridAvailableRatio.clamp(0.8, 1.25);
 
-                            // Dynamically calculate aspect ratio to fit the available space
-                            double ratio = itemWidth / itemHeight;
-                            
-                            // Keep it within reasonable bounds so cards still look beautiful
-                            if (ratio < 0.85) ratio = 0.85;
-                            if (ratio > 1.35) ratio = 1.35;
+                            final double cardWidth;
+                            final double cardHeight;
 
-                            return GridView.builder(
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              itemCount: _gridItemCount,
-                              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 3,
-                                crossAxisSpacing: 14,
-                                mainAxisSpacing: 14,
-                                childAspectRatio: ratio,
+                            if (ratio <= gridAvailableRatio) {
+                              cardHeight = (availableHeight - 28) / 3;
+                              cardWidth = cardHeight * ratio;
+                            } else {
+                              cardWidth = (availableWidth - 28) / 3;
+                              cardHeight = cardWidth / ratio;
+                            }
+
+                            final double gridWidth = cardWidth * 3 + 28;
+                            final double gridHeight = cardHeight * 3 + 28;
+
+                            return SizedBox(
+                              width: gridWidth,
+                              height: gridHeight,
+                              child: GridView.builder(
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                itemCount: _gridItemCount,
+                                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: 3,
+                                  crossAxisSpacing: 14,
+                                  mainAxisSpacing: 14,
+                                  childAspectRatio: ratio,
+                                ),
+                                itemBuilder: (context, index) {
+                                  return RepaintBoundary(
+                                    child: _buildMemoryCard(index),
+                                  );
+                                },
                               ),
-                              itemBuilder: (context, index) {
-                                return RepaintBoundary(
-                                  child: _buildMemoryCard(index),
-                                );
-                              },
                             );
                           },
                         ),
