@@ -418,7 +418,11 @@ def _build_als_feature_vector(target_data: dict, sensor_data: dict) -> np.ndarra
 
     # Motor performans metrikleri
     tremor      = _safe_get(sensor_data, "tremor_index", 0.0)
+    if tremor > 4.0:
+        tremor = tremor / 25.0
     variability = _safe_get(sensor_data, "movement_variability", 0.0)
+    if variability > 6.0:
+        variability = variability / 10.0
     miss        = _safe_get(target_data, "slice_miss_count", 0)
     coverage    = _safe_get(target_data, "avg_cut_coverage", 100.0)
 
@@ -498,22 +502,26 @@ def compute_als_probability(target_data: dict, sensor_data: dict) -> dict:
 
     # ── 1. Tremor indeksi ──
     tremor       = _safe_get(sensor_data, "tremor_index", 0.0)
+    if tremor > 4.0:
+        tremor = tremor / 25.0
     tremor_score = _clamp(tremor * 25.0)
 
     if tremor_score > 15:
         factors.append({
             "factor": "tremor_index",
             "label":  "Tremor İndeksi",
-            "value":  f"{tremor:.2f}",
+            "value":  f"{tremor * 25.0:.2f}" if tremor <= 4.0 else f"{tremor:.2f}",
             "impact": "high" if tremor_score > 50 else "moderate",
             "detail": (
-                f"Tremor indeksi {tremor:.2f} — "
+                f"Tremor indeksi {tremor * 25.0 if tremor <= 4.0 else tremor:.2f} — "
                 f"{'belirgin motor instabilite' if tremor_score > 50 else 'hafif titreme tespit edildi'}."
             ),
         })
 
     # ── 2. Hareket değişkenliği ──
     variability       = _safe_get(sensor_data, "movement_variability", 0.0)
+    if variability > 6.0:
+        variability = variability / 10.0
     variability_score = _clamp(variability * 15.0)
 
     if variability_score > 15:

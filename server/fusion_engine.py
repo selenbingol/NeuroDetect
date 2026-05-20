@@ -108,12 +108,28 @@ def calculate_digital_risk(session_id: int, game_data: dict, target_data: dict, 
             except Exception as e:
                 print(f"[FUSION ENGINE] Tremor ML tahmin hatası: {e}. Kural tabanlıya geçiliyor.")
                 tremor_penalty = sensor_data.get("tremor_index", 0.0) or 0.0
-                variability_penalty = (sensor_data.get("movement_variability", 0.0) or 0.0) * 3.0
+                if tremor_penalty > 4.0:
+                    tremor_penalty = tremor_penalty / 25.0
+                tremor_penalty = tremor_penalty * 25.0
+
+                variability_penalty = sensor_data.get("movement_variability", 0.0) or 0.0
+                if variability_penalty > 6.0:
+                    variability_penalty = variability_penalty / 10.0
+                variability_penalty = variability_penalty * 3.0
+
                 motor_risk += float(tremor_penalty) + float(variability_penalty)
         else:
             # Model yüklenemediyse eski manuel kurallarla devam et
             tremor_penalty = sensor_data.get("tremor_index", 0.0) or 0.0
-            variability_penalty = (sensor_data.get("movement_variability", 0.0) or 0.0) * 3.0
+            if tremor_penalty > 4.0:
+                tremor_penalty = tremor_penalty / 25.0
+            tremor_penalty = tremor_penalty * 25.0
+
+            variability_penalty = sensor_data.get("movement_variability", 0.0) or 0.0
+            if variability_penalty > 6.0:
+                variability_penalty = variability_penalty / 10.0
+            variability_penalty = variability_penalty * 3.0
+
             motor_risk += float(tremor_penalty) + float(variability_penalty)
 
     # Skoru gerçekçi dünya değerleri arasına sıkıştır

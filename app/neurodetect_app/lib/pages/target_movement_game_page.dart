@@ -105,7 +105,7 @@ double _rawMovementVariability = 0;
     _FruitVisual(assetPath: 'assets/fruits/pineapple.png', fallback: '🍍', scale: 1.18),
     _FruitVisual(assetPath: 'assets/fruits/pomegranate.png', fallback: '🍎', scale: 0.96),
     _FruitVisual(assetPath: 'assets/fruits/strawberry.png', fallback: '🍓', scale: 1.12),
-    _FruitVisual(assetPath: 'assets/fruits/watermelon.png', fallback: '🍉', scale: 1.08),
+    _FruitVisual(assetPath: 'assets/fruits/watermelon.png', fallback: '🍉', scale: 1.48),
   ];
 
   int _fruitIndex = 0;

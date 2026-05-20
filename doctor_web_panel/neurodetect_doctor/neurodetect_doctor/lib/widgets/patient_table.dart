@@ -149,9 +149,9 @@ class PatientTable extends StatelessWidget {
   }
 
   Widget _buildPatientRow(PatientSummaryModel patient) {
-    final firstName = _displayValue(patient.firstName);
-    final lastName = _displayValue(patient.lastName);
-    final fullName = (firstName == lastName && firstName != "-")
+    final firstName = _displayValue(patient.firstName).trim();
+    final lastName = _displayValue(patient.lastName).trim();
+    final fullName = (firstName.toLowerCase() == lastName.toLowerCase() && firstName != "-")
         ? firstName
         : "$firstName $lastName".trim();
 
